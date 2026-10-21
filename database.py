@@ -21,9 +21,11 @@ def init_db():
         defense INTEGER, dribble_defense INTEGER, attack INTEGER, photo_file_id TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS abilities (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name_en TEXT UNIQUE, name_fa TEXT,
-        aliases TEXT, power INTEGER, cooldown INTEGER DEFAULT 20, category TEXT, owner TEXT)''')
+        aliases TEXT, power INTEGER, cooldown INTEGER DEFAULT 20, category TEXT, owner TEXT, price INTEGER DEFAULT 50)''')
     c.execute('''CREATE TABLE IF NOT EXISTS character_abilities (
         character_id INTEGER, ability_id INTEGER, PRIMARY KEY (character_id, ability_id))''')
+    c.execute('''CREATE TABLE IF NOT EXISTS user_abilities (
+        user_id INTEGER, ability_id INTEGER, PRIMARY KEY (user_id, ability_id))''')
     c.execute('''CREATE TABLE IF NOT EXISTS ability_cooldowns (
         user_id INTEGER, ability_id INTEGER, last_used INTEGER, PRIMARY KEY (user_id, ability_id))''')
     c.execute('''CREATE TABLE IF NOT EXISTS bot_images (
@@ -32,8 +34,8 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT, attacker_id INTEGER, target_id INTEGER, 
         ability_name TEXT, result TEXT, points INTEGER, timestamp INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, reward_multiplier REAL DEFAULT 1.0, 
-        is_active INTEGER DEFAULT 1)''')
+        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, event_type TEXT, target_id INTEGER, 
+        multiplier REAL, ends_at INTEGER, is_active INTEGER DEFAULT 1)''')
     c.execute('''CREATE TABLE IF NOT EXISTS bans (
         user_id INTEGER PRIMARY KEY, reason TEXT, banned_at INTEGER, banned_by INTEGER)''')
     conn.commit(); conn.close()
@@ -56,54 +58,180 @@ CHARACTERS = [
     ("Nanase","world_class",70,70,65),
 ]
 
+# ۳ Ability برای هر کاراکتر (اسم‌ها از مانگا + خلاقیت)
 ABILITIES = [
-    ("Direct Shot","شوت مستقیم","directshot",80,20,"shot","Isagi Yoichi"),
-    ("Gyro Shot","شوت چرخشی","gyro",85,20,"shot","Itoshi Rin"),
-    ("Kaiser Impact","ضربه کایزر","kaiser",95,20,"shot","Michael Kaiser"),
-    ("Bicycle Kick","قیچی برگردون","bicycle",85,20,"shot","Ryusei Shido"),
-    ("Barou Charge","حمله بارو","barou",90,20,"shot","Barou Shoei"),
-    ("Sniper Shot","شوت تک‌تیرانداز","sniper",85,20,"shot","Kenyu Yukimiya"),
-    ("Elastic Dribble","دریبل الاستیک","elastic",85,20,"dribble","Meguru Bachira"),
-    ("Speed Dribble","دریبل سرعتی","speed",90,20,"dribble","Chigiri"),
-    ("God Speed","سرعت خدا","godspeed",95,20,"dribble","Julian Loki"),
-    ("Magician Dribble","دریبل جادوگر","magician",90,20,"dribble","Itoshi Sae"),
-    ("Metavision","دید فراگیر","metavision",85,20,"defend","Isagi Yoichi"),
-    ("Predator Eye","چشم شکارچی","predatoreye",90,20,"defend","Itoshi Rin"),
-    ("Iron Wall","دیوار آهنی","ironwall",90,20,"defend","Jyubei Aryu"),
-    ("Aura Defense","دفاع هاله‌ای","aura",90,20,"defend","Don Lorenzo"),
-    ("Flow","جریان","flow",90,20,"special","Meguru Bachira"),
-    ("Protagonist Aura","هاله قهرمان","protagonist",95,20,"special","Isagi Yoichi"),
-    ("Emperor Aura","هاله امپراتور","emperor",95,20,"special","Michael Kaiser"),
-    ("God Mode","حالت خدا","godmode",100,20,"special","Noel Noa"),
-    ("Berserker Mode","حالت دیوانه","berserker",95,20,"special","Ryusei Shido"),
-    ("Trap Master","استاد تله","trap",85,20,"dribble","Seishiro Nagi"),
-    ("Karasu Defense","دفاع کاراسو","karasu",80,20,"defend","Tabito Karasu"),
-    ("Mikage Copy","کپی میکاگه","mikage",85,20,"special","Reo Mikage"),
-    ("Aiku Tackle","تکل آیکو","aiku",85,20,"defend","Oliver Aiku"),
-    ("Kiyora Vision","دید کیورا","kiyora",80,20,"defend","Jin Kiyora"),
-    ("Hiori Pass","پاس هیوری","hiori",80,20,"dribble","Yo Hiori"),
-    ("Ness Pass","پاس نس","ness",75,20,"dribble","Alexis Ness"),
-    ("Sendo Strike","ضربه سندو","sendo",85,20,"shot","Sendo"),
-    ("Otoya Stealth","مخفی‌کاری اوتویا","otoya",80,20,"dribble","Eita Otoya"),
-    ("Kurona Dash","جهش کورونا","kurona",80,20,"dribble","Ranze Kurona"),
-    ("Gagamaru Save","سیو گاگامارو","gagamaru",90,20,"defend","Gin Gagamaru"),
-    ("Zantetsu Dash","جهش زانتتسو","zantetsu",75,20,"dribble","Zantetsu"),
-    ("Nanase Stamina","استقامت ناناسه","nanase",75,20,"defend","Nanase"),
-    ("Igaguri Foul","خطای ایگاگوری","igaguri",60,20,"defend","Igaguri"),
-    ("Kusu Control","کنترل کوسو","kusu",75,20,"dribble","Kusu"),
-    ("Agi Control","کنترل آگی","agi",75,20,"dribble","Agi"),
-    ("Onazi Shot","شوت اونازی","onazi",75,20,"shot","Onazi"),
-    ("Knight Shield","سپر نایت","knight",80,20,"defend","Teddy Knight"),
-    ("Chevalier Step","قدم شوالیه","chevalier",80,20,"dribble","Charles Chevalier"),
-    ("Lavinho Dance","رقص لاوینیو","lavinho",95,20,"dribble","Lavinho"),
-    ("Luna Shot","شوت لونا","luna",90,20,"shot","Leonardo Luna"),
-    ("Prince Power","قدرت پرینس","prince",90,20,"shot","Chris Prince"),
-    ("Snuffy Snake","مار اسنافی","snuffy",85,20,"shot","Mark Snuffy"),
-    ("Cavascoz Magic","جادوی کاواسکوز","cavascoz",85,20,"dribble","Pablo Cavascoz"),
-    ("Silva Wall","دیوار سیلوا","silva",90,20,"defend","Dada Silva"),
-    ("Blake Speed","سرعت بلیک","blake",85,20,"dribble","Blake"),
-    ("Lockhart Lock","قفل لاکهارت","lockhart",85,20,"defend","Lockhart"),
-    ("Hugo Defense","دفاع هوگو","hugo",80,20,"defend","Vivian Hugo"),
+    # Isagi
+    ("Direct Shot","شوت مستقیم","directshot",80,20,"shot","Isagi Yoichi",0),
+    ("Metavision","دید فراگیر","metavision",85,20,"defend","Isagi Yoichi",80),
+    ("Protagonist Aura","هاله قهرمان","protagonist",95,20,"special","Isagi Yoichi",150),
+    # Rin
+    ("Gyro Shot","شوت چرخشی","gyro",85,20,"shot","Itoshi Rin",0),
+    ("Predator Eye","چشم شکارچی","predatoreye",90,20,"defend","Itoshi Rin",100),
+    ("Berserker Mode","حالت دیوانه","berserker",95,20,"special","Itoshi Rin",150),
+    # Kaiser
+    ("Kaiser Impact","ضربه کایزر","kaiser",95,20,"shot","Michael Kaiser",0),
+    ("Emperor Aura","هاله امپراتور","emperor",95,20,"special","Michael Kaiser",150),
+    ("Kaiser Dribble","دریبل کایزر","kdribble",85,20,"dribble","Michael Kaiser",80),
+    # Bachira
+    ("Elastic Dribble","دریبل الاستیک","elastic",85,20,"dribble","Meguru Bachira",0),
+    ("Flow Dribble","دریبل جریان","flowdribble",85,20,"dribble","Meguru Bachira",80),
+    ("Flow","جریان","flow",90,20,"special","Meguru Bachira",120),
+    # Nagi
+    ("Trap Master","استاد تله","trap",90,20,"dribble","Seishiro Nagi",0),
+    ("Nagi Shot","شوت ناگی","nagishot",85,20,"shot","Seishiro Nagi",80),
+    ("Genius Trap","تله نابغه","geniustrap",95,20,"special","Seishiro Nagi",130),
+    # Barou
+    ("Barou Charge","حمله بارو","barou",90,20,"shot","Barou Shoei",0),
+    ("King Shot","شوت پادشاه","kingshot",85,20,"shot","Barou Shoei",80),
+    ("King Mode","حالت پادشاه","kingmode",95,20,"special","Barou Shoei",140),
+    # Chigiri
+    ("Speed Dribble","دریبل سرعتی","speed",90,20,"dribble","Chigiri",0),
+    ("Red Panther","پلنگ سرخ","redpanther",95,20,"special","Chigiri",120),
+    ("Chigiri Shot","شوت چیگیری","chigirishot",80,20,"shot","Chigiri",70),
+    # Shido
+    ("Bicycle Kick","قیچی برگردون","bicycle",85,20,"shot","Ryusei Shido",0),
+    ("Shido Shot","شوت شیدو","shidoshot",90,20,"shot","Ryusei Shido",90),
+    ("Berserker Rage","خشم دیوانه","rage",95,20,"special","Ryusei Shido",150),
+    # Sae
+    ("Magician Dribble","دریبل جادوگر","magician",90,20,"dribble","Itoshi Sae",0),
+    ("Sae Shot","شوت سائه","saeshot",85,20,"shot","Itoshi Sae",80),
+    ("Genius Mode","حالت نابغه","genius",95,20,"special","Itoshi Sae",150),
+    # Aiku
+    ("Slide Tackle","تکل سرشی","slide",85,20,"defend","Oliver Aiku",0),
+    ("Captain Mode","حالت کاپیتان","captain",90,20,"special","Oliver Aiku",130),
+    ("Aiku Defense","دفاع آیکو","aikudef",85,20,"defend","Oliver Aiku",70),
+    # Yukimiya
+    ("Sniper Shot","شوت تک‌تیرانداز","sniper",85,20,"shot","Kenyu Yukimiya",0),
+    ("Gyro Dribble","دریبل چرخشی","gyrodrib",80,20,"dribble","Kenyu Yukimiya",70),
+    ("Yukimiya Vision","دید یوکیمیا","yukivision",85,20,"defend","Kenyu Yukimiya",80),
+    # Aryu
+    ("Iron Wall","دیوار آهنی","ironwall",90,20,"defend","Jyubei Aryu",0),
+    ("Aryu Defense","دفاع آریو","aryudef",85,20,"defend","Jyubei Aryu",80),
+    ("Aryu Shot","شوت آریو","aryushot",75,20,"shot","Jyubei Aryu",60),
+    # Lorenzo
+    ("Aura Defense","دفاع هاله‌ای","aura",90,20,"defend","Don Lorenzo",0),
+    ("Monster Mode","حالت هیولا","monster",95,20,"special","Don Lorenzo",150),
+    ("Lorenzo Dribble","دریبل لورنزو","lordrib",85,20,"dribble","Don Lorenzo",80),
+    # Noa
+    ("God Mode","حالت خدا","godmode",100,20,"special","Noel Noa",0),
+    ("Noa Shot","شوت نوآ","noashot",95,20,"shot","Noel Noa",150),
+    ("Perfect Vision","دید کامل","perfectvision",90,20,"defend","Noel Noa",100),
+    # Lavinho
+    ("Samba Dribble","دریبل سامبا","samba",95,20,"dribble","Lavinho",0),
+    ("Lavinho Shot","شوت لاوینیو","lavishot",90,20,"shot","Lavinho",100),
+    ("Dance Mode","حالت رقص","dance",95,20,"special","Lavinho",150),
+    # Loki
+    ("God Speed","سرعت خدا","godspeed",95,20,"dribble","Julian Loki",0),
+    ("Loki Shot","شوت لوکی","lokishot",85,20,"shot","Julian Loki",90),
+    ("Speed Mode","حالت سرعت","speedmode",95,20,"special","Julian Loki",150),
+    # Ness
+    ("Ness Pass","پاس نس","ness",75,20,"dribble","Alexis Ness",0),
+    ("Ness Shot","شوت نس","nessshot",80,20,"shot","Alexis Ness",70),
+    ("Ness Vision","دید نس","nessvision",80,20,"defend","Alexis Ness",70),
+    # Hiori
+    ("Hiori Pass","پاس هیوری","hiori",80,20,"dribble","Yo Hiori",0),
+    ("Hiori Shot","شوت هیوری","hiorishot",80,20,"shot","Yo Hiori",70),
+    ("Hiori Vision","دید هیوری","hiorivision",80,20,"defend","Yo Hiori",70),
+    # Karasu
+    ("Karasu Defense","دفاع کاراسو","karasu",80,20,"defend","Tabito Karasu",0),
+    ("Karasu Dribble","دریبل کاراسو","karasudrib",80,20,"dribble","Tabito Karasu",70),
+    ("Karasu Shot","شوت کاراسو","karasushot",75,20,"shot","Tabito Karasu",60),
+    # Niko
+    ("Block","بلاک","block",75,20,"defend","Ikki Niko",0),
+    ("Niko Defense","دفاع نیکو","nikodef",75,20,"defend","Ikki Niko",60),
+    ("Niko Vision","دید نیکو","nikovision",75,20,"defend","Ikki Niko",60),
+    # Otoya
+    ("Otoya Stealth","مخفی‌کاری اوتویا","otoya",80,20,"dribble","Eita Otoya",0),
+    ("Otoya Shot","شوت اوتویا","otoyashot",80,20,"shot","Eita Otoya",70),
+    ("Ninja Mode","حالت نینجا","ninja",85,20,"special","Eita Otoya",120),
+    # Kurona
+    ("Kurona Dash","جهش کورونا","kurona",80,20,"dribble","Ranze Kurona",0),
+    ("Kurona Defense","دفاع کورونا","koronadef",80,20,"defend","Ranze Kurona",70),
+    ("Kurona Pass","پاس کورونا","koronapass",80,20,"dribble","Ranze Kurona",70),
+    # Gagamaru
+    ("Gagamaru Save","سیو گاگامارو","gagamaru",90,20,"defend","Gin Gagamaru",0),
+    ("Wild Save","سیو وحشی","wildsave",95,20,"special","Gin Gagamaru",130),
+    ("Gagamaru Defense","دفاع گاگامارو","gagadef",85,20,"defend","Gin Gagamaru",70),
+    # Sendo
+    ("Sendo Strike","ضربه سندو","sendo",85,20,"shot","Sendo",0),
+    ("Sendo Dribble","دریبل سندو","sendodrib",75,20,"dribble","Sendo",60),
+    ("Sendo Defense","دفاع سندو","sendodef",75,20,"defend","Sendo",60),
+    # Zantetsu
+    ("Zantetsu Dash","جهش زانتتسو","zantetsu",80,20,"dribble","Zantetsu",0),
+    ("Zantetsu Shot","شوت زانتتسو","zantetsushot",75,20,"shot","Zantetsu",60),
+    ("Zantetsu Defense","دفاع زانتتسو","zantetsudef",75,20,"defend","Zantetsu",60),
+    # Nanase
+    ("Nanase Stamina","استقامت ناناسه","nanase",80,20,"defend","Nanase",0),
+    ("Nanase Dribble","دریبل ناناسه","nanasedrib",75,20,"dribble","Nanase",60),
+    ("Nanase Shot","شوت ناناسه","nanaseshot",70,20,"shot","Nanase",50),
+    # Igaguri
+    ("Igaguri Foul","خطای ایگاگوری","igaguri",60,20,"defend","Igaguri",0),
+    ("Igaguri Dive","شیرجه ایگاگوری","dive",55,20,"defend","Igaguri",40),
+    ("Igaguri Luck","شانس ایگاگوری","luck",65,20,"special","Igaguri",50),
+    # Kusu
+    ("Kusu Control","کنترل کوسو","kusu",75,20,"dribble","Kusu",0),
+    ("Kusu Shot","شوت کوسو","kusushot",75,20,"shot","Kusu",60),
+    ("Kusu Defense","دفاع کوسو","kusudef",75,20,"defend","Kusu",60),
+    # Agi
+    ("Agi Control","کنترل آگی","agi",75,20,"dribble","Agi",0),
+    ("Agi Shot","شوت آگی","agishot",75,20,"shot","Agi",60),
+    ("Agi Defense","دفاع آگی","agidef",75,20,"defend","Agi",60),
+    # Reo
+    ("Mikage Copy","کپی میکاگه","mikage",85,20,"special","Reo Mikage",0),
+    ("Reo Dribble","دریبل رئو","reodrib",80,20,"dribble","Reo Mikage",70),
+    ("Reo Shot","شوت رئو","reoshot",80,20,"shot","Reo Mikage",70),
+    # Kiyora
+    ("Kiyora Vision","دید کیورا","kiyora",80,20,"defend","Jin Kiyora",0),
+    ("Kiyora Dribble","دریبل کیورا","kiyoradrib",80,20,"dribble","Jin Kiyora",70),
+    ("Kiyora Shot","شوت کیورا","kiyorashot",75,20,"shot","Jin Kiyora",60),
+    # Onazi
+    ("Onazi Shot","شوت اونازی","onazi",75,20,"shot","Onazi",0),
+    ("Onazi Dribble","دریبل اونازی","onazidrib",75,20,"dribble","Onazi",60),
+    ("Onazi Defense","دفاع اونازی","onazidef",70,20,"defend","Onazi",50),
+    # Knight
+    ("Knight Shield","سپر نایت","knight",80,20,"defend","Teddy Knight",0),
+    ("Knight Shot","شوت نایت","knightshot",75,20,"shot","Teddy Knight",60),
+    ("Knight Tackle","تکل نایت","knighttackle",80,20,"defend","Teddy Knight",70),
+    # Chevalier
+    ("Chevalier Step","قدم شوالیه","chevalier",80,20,"dribble","Charles Chevalier",0),
+    ("Chevalier Shot","شوت شوالیه","chevshot",75,20,"shot","Charles Chevalier",60),
+    ("Chevalier Defense","دفاع شوالیه","chevdef",75,20,"defend","Charles Chevalier",60),
+    # Snuffy
+    ("Snuffy Snake","مار اسنافی","snuffy",85,20,"shot","Mark Snuffy",0),
+    ("Snuffy Dribble","دریبل اسنافی","snuffydrib",80,20,"dribble","Mark Snuffy",70),
+    ("Snuffy Defense","دفاع اسنافی","snuffydef",80,20,"defend","Mark Snuffy",70),
+    # Cavascoz
+    ("Cavascoz Magic","جادوی کاواسکوز","cavascoz",85,20,"dribble","Pablo Cavascoz",0),
+    ("Cavascoz Shot","شوت کاواسکوز","cavshot",80,20,"shot","Pablo Cavascoz",70),
+    ("Cavascoz Defense","دفاع کاواسکوز","cavdef",80,20,"defend","Pablo Cavascoz",70),
+    # Silva
+    ("Silva Wall","دیوار سیلوا","silva",90,20,"defend","Dada Silva",0),
+    ("Silva Shot","شوت سیلوا","silvashot",85,20,"shot","Dada Silva",80),
+    ("Silva Power","قدرت سیلوا","silvapower",90,20,"shot","Dada Silva",90),
+    # Blake
+    ("Blake Speed","سرعت بلیک","blake",85,20,"dribble","Blake",0),
+    ("Blake Shot","شوت بلیک","blakeshot",80,20,"shot","Blake",70),
+    ("Blake Defense","دفاع بلیک","blakedef",80,20,"defend","Blake",70),
+    # Prince
+    ("Prince Power","قدرت پرینس","prince",90,20,"shot","Chris Prince",0),
+    ("Perfect Body","بدن کامل","perfectbody",95,20,"special","Chris Prince",150),
+    ("Prince Defense","دفاع پرینس","princedef",85,20,"defend","Chris Prince",80),
+    # Luna
+    ("Luna Shot","شوت لونا","luna",90,20,"shot","Leonardo Luna",0),
+    ("Moon Dribble","دریبل ماه","moon",85,20,"dribble","Leonardo Luna",80),
+    ("Night Mode","حالت شب","night",90,20,"special","Leonardo Luna",140),
+    # Iglesias
+    ("Bunny Hop","پرش خرگوشی","bunny",80,20,"dribble","Bunny Iglesias",0),
+    ("Bunny Shot","شوت خرگوشی","bunnyshot",75,20,"shot","Bunny Iglesias",60),
+    ("Bunny Speed","سرعت خرگوشی","bunnyspeed",80,20,"dribble","Bunny Iglesias",70),
+    # Lockhart
+    ("Lock Defense","دفاع قفل","lock",85,20,"defend","Lockhart",0),
+    ("Lock Dribble","دریبل قفل","lockdrib",75,20,"dribble","Lockhart",60),
+    ("Lock Shot","شوت قفل","lockshot",75,20,"shot","Lockhart",60),
+    # Hugo
+    ("Hugo Defense","دفاع هوگو","hugo",80,20,"defend","Vivian Hugo",0),
+    ("Wall Defense","دفاع دیواری","walldef",85,20,"defend","Vivian Hugo",80),
+    ("Hugo Shot","شوت هوگو","hugoshot",75,20,"shot","Vivian Hugo",60),
 ]
 
 def seed():
@@ -112,12 +240,9 @@ def seed():
         try: c.execute("INSERT INTO characters (name,tier,defense,dribble_defense,attack) VALUES (?,?,?,?,?)", ch)
         except: pass
     for ab in ABILITIES:
-        try: c.execute("INSERT INTO abilities (name_en,name_fa,aliases,power,cooldown,category,owner) VALUES (?,?,?,?,?,?,?)", ab)
+        try: c.execute("INSERT INTO abilities (name_en,name_fa,aliases,power,cooldown,category,owner,price) VALUES (?,?,?,?,?,?,?,?)", ab)
         except: pass
     
+    # اتصال Abilityها به کاراکترها
     c.execute("INSERT OR IGNORE INTO character_abilities (character_id, ability_id) SELECT c.id, a.id FROM characters c, abilities a WHERE c.name = a.owner")
-    c.execute('''INSERT OR IGNORE INTO character_abilities (character_id, ability_id)
-                 SELECT c.id, a.id FROM characters c, abilities a 
-                 WHERE c.id NOT IN (SELECT character_id FROM character_abilities) 
-                 AND a.category IN ('shot', 'dribble', 'defend') GROUP BY c.id HAVING COUNT(a.id) <= 2''')
     conn.commit(); conn.close()
