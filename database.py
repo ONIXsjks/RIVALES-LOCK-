@@ -26,15 +26,8 @@ def init_db():
         character_id INTEGER, ability_id INTEGER, PRIMARY KEY (character_id, ability_id))''')
     c.execute('''CREATE TABLE IF NOT EXISTS ability_cooldowns (
         user_id INTEGER, ability_id INTEGER, last_used INTEGER, PRIMARY KEY (user_id, ability_id))''')
-    c.execute('''CREATE TABLE IF NOT EXISTS character_messages (
-        message_id INTEGER PRIMARY KEY, chat_id INTEGER, character_id INTEGER, expires_at INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS bot_images (
         key TEXT PRIMARY KEY, file_id TEXT, updated_at INTEGER, updated_by INTEGER)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, reward_multiplier REAL DEFAULT 1.0,
-        starts_at INTEGER, ends_at INTEGER, is_active INTEGER DEFAULT 1, photo_file_id TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS bans (
-        user_id INTEGER PRIMARY KEY, reason TEXT, banned_at INTEGER, banned_by INTEGER)''')
     conn.commit(); conn.close()
 
 CHARACTERS = [
@@ -55,32 +48,56 @@ CHARACTERS = [
     ("Nanase","world_class",70,70,65),
 ]
 
+# 🌀 Abilityهای کامل بر اساس مانگا + ساخت Ability برای کاراکترهای بدون Ability
 ABILITIES = [
-    ("Direct Shot","شوت مستقیم","directshot,دایرکت,شوت مستقیم",80,20,"shot","Isagi Yoichi"),
+    ("Direct Shot","شوت مستقیم","directshot,دایرکت",80,20,"shot","Isagi Yoichi"),
     ("Gyro Shot","شوت چرخشی","gyro,ژایرو",85,20,"shot","Itoshi Rin"),
-    ("Knuckle Shot","شوت بی‌جهت","knuckle,ناکل",85,20,"shot","Michael Kaiser"),
-    ("Bicycle Kick","قیچی برگردون","bicycle,قیچی",85,20,"shot","Ryusei Shido"),
-    ("Predator Shot","شوت شکارچی","predator,پردیتور",90,20,"shot","Itoshi Rin"),
     ("Kaiser Impact","ضربه کایزر","kaiser,کایزر",95,20,"shot","Michael Kaiser"),
+    ("Bicycle Kick","قیچی برگردون","bicycle,قیچی",85,20,"shot","Ryusei Shido"),
     ("Barou Charge","حمله بارو","barou,بارو",90,20,"shot","Barou Shoei"),
     ("Sniper Shot","شوت تک‌تیرانداز","sniper,اسنایپر",85,20,"shot","Kenyu Yukimiya"),
-    ("Trap","تله","trap,ترپ,تله",75,20,"dribble","Isagi Yoichi"),
     ("Elastic Dribble","دریبل الاستیک","elastic,الاستیک",85,20,"dribble","Meguru Bachira"),
-    ("Flow Dribble","دریبل جریان","flowdribble,فلو دریبل",85,20,"dribble","Meguru Bachira"),
     ("Speed Dribble","دریبل سرعتی","speed,اسپید",90,20,"dribble","Chigiri"),
     ("God Speed","سرعت خدا","godspeed,گاد اسپید",95,20,"dribble","Julian Loki"),
     ("Magician Dribble","دریبل جادوگر","magician,ماجیشن",90,20,"dribble","Itoshi Sae"),
-    ("Block","بلاک","block,بلاک",75,20,"defend","Ikki Niko"),
-    ("Slide Tackle","تکل سرشی","slide,اسلاید",85,20,"defend","Oliver Aiku"),
     ("Metavision","دید فراگیر","metavision,متاویژن",85,20,"defend","Isagi Yoichi"),
-    ("Aura Defense","دفاع هاله‌ای","aura,آورا",90,20,"defend","Don Lorenzo"),
+    ("Predator Eye","چشم شکارچی","predatoreye,پردیتور",90,20,"defend","Itoshi Rin"),
     ("Iron Wall","دیوار آهنی","ironwall,آیرون وال",90,20,"defend","Jyubei Aryu"),
-    ("Predator Eye","چشم شکارچی","predatoreye,پردیتور آی",90,20,"defend","Itoshi Rin"),
+    ("Aura Defense","دفاع هاله‌ای","aura,آورا",90,20,"defend","Don Lorenzo"),
     ("Flow","جریان","flow,فلو",90,20,"special","Meguru Bachira"),
     ("Protagonist Aura","هاله قهرمان","protagonist,پروتاگونیست",95,20,"special","Isagi Yoichi"),
     ("Emperor Aura","هاله امپراتور","emperor,امپراتور",95,20,"special","Michael Kaiser"),
     ("God Mode","حالت خدا","godmode,گاد مود",100,20,"special","Noel Noa"),
     ("Berserker Mode","حالت دیوانه","berserker,برزرکر",95,20,"special","Ryusei Shido"),
+    # ساخت Ability برای بقیه
+    ("Trap Master","استاد تله","trap,تله",85,20,"dribble","Seishiro Nagi"),
+    ("Karasu Defense","دفاع کاراسو","karasu",80,20,"defend","Tabito Karasu"),
+    ("Mikage Copy","کپی میکاگه","mikage,copy",85,20,"special","Reo Mikage"),
+    ("Aiku Tackle","تکل آیکو","aiku,tackle",85,20,"defend","Oliver Aiku"),
+    ("Kiyora Vision","دید کیورا","kiyora",80,20,"defend","Jin Kiyora"),
+    ("Hiori Pass","پاس هیوری","hiori,pass",80,20,"dribble","Yo Hiori"),
+    ("Ness Pass","پاس نس","ness,pass",75,20,"dribble","Alexis Ness"),
+    ("Sendo Strike","ضربه سندو","sendo,strike",85,20,"shot","Sendo"),
+    ("Otoya Stealth","مخفی‌کاری اوتویا","otoya,stealth",80,20,"dribble","Eita Otoya"),
+    ("Kurona Dash","جهش کورونا","kurona,dash",80,20,"dribble","Ranze Kurona"),
+    ("Gagamaru Save","سیو گاگامارو","gagamaru,save",90,20,"defend","Gin Gagamaru"),
+    ("Zantetsu Dash","جهش زانتتسو","zantetsu",75,20,"dribble","Zantetsu"),
+    ("Nanase Stamina","استقامت ناناسه","nanase",75,20,"defend","Nanase"),
+    ("Igaguri Foul","خطای ایگاگوری","igaguri,foul",60,20,"defend","Igaguri"),
+    ("Kusu Control","کنترل کوسو","kusu",75,20,"dribble","Kusu"),
+    ("Agi Control","کنترل آگی","agi",75,20,"dribble","Agi"),
+    ("Onazi Shot","شوت اونازی","onazi",75,20,"shot","Onazi"),
+    ("Knight Shield","سپر نایت","knight,shield",80,20,"defend","Teddy Knight"),
+    ("Chevalier Step","قدم شوالیه","chevalier",80,20,"dribble","Charles Chevalier"),
+    ("Lavinho Dance","رقص لاوینیو","lavinho,dance",95,20,"dribble","Lavinho"),
+    ("Luna Shot","شوت لونا","luna,shot",90,20,"shot","Leonardo Luna"),
+    ("Prince Power","قدرت پرینس","prince,power",90,20,"shot","Chris Prince"),
+    ("Snuffy Snake","مار اسنافی","snuffy",85,20,"shot","Mark Snuffy"),
+    ("Cavascoz Magic","جادوی کاواسکوز","cavascoz",85,20,"dribble","Pablo Cavascoz"),
+    ("Silva Wall","دیوار سیلوا","silva,wall",90,20,"defend","Dada Silva"),
+    ("Blake Speed","سرعت بلیک","blake,speed",85,20,"dribble","Blake"),
+    ("Lockhart Lock","قفل لاکهارت","lockhart",85,20,"defend","Lockhart"),
+    ("Hugo Defense","دفاع هوگو","hugo,defense",80,20,"defend","Vivian Hugo"),
 ]
 
 def seed():
@@ -92,8 +109,12 @@ def seed():
         try: c.execute("INSERT INTO abilities (name_en,name_fa,aliases,power,cooldown,category,owner) VALUES (?,?,?,?,?,?,?)", ab)
         except: pass
     
-    # 🔧 باگ‌گیری: به هر کاراکتری که Ability نداره، ۴ تا Ability رندوم بده
-    conn.execute('''INSERT OR IGNORE INTO character_abilities (character_id, ability_id)
+    # 🔧 اتصال دقیق صاحب Ability به کاراکتر
+    c.execute("INSERT OR IGNORE INTO character_abilities (character_id, ability_id) SELECT c.id, a.id FROM characters c, abilities a WHERE c.name = a.owner")
+    # 🔧 اگر کاراکتری باز هم Ability نداشت، ۲ تا Ability رندوم بهش بده
+    c.execute('''INSERT OR IGNORE INTO character_abilities (character_id, ability_id)
                  SELECT c.id, a.id FROM characters c, abilities a 
-                 WHERE c.id NOT IN (SELECT DISTINCT character_id FROM character_abilities)''')
+                 WHERE c.id NOT IN (SELECT character_id FROM character_abilities) 
+                 AND a.category IN ('shot', 'dribble', 'defend') 
+                 GROUP BY c.id HAVING COUNT(a.id) <= 2''')
     conn.commit(); conn.close()
