@@ -7,11 +7,15 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 OWNER_ID = 7023690411
 
 # ⏳ کول‌داون‌ها (ثانیه)
-RIP_COOLDOWN = 10
-ABILITY_COOLDOWN = 30
+RIP_COOLDOWN = 10       # کول‌داون بین هر ریپ
+ABILITY_COOLDOWN = 20   # کول‌داون هر Ability (طبق درخواستت ۲۰ ثانیه شد)
+
+# ⚡ سیستم انرژی
+ENERGY_COST = 20        # هر ریپ چقدر انرژی کم می‌کنه
+EXHAUSTION_TIME = 120   # اگر انرژی صفر بشه، ۱۲۰ ثانیه (۲ دقیقه) قفل می‌شه
 
 # ⚽ پایان بازی
-MAX_GOALS = 5
+MAX_GOALS = 5           # بعد از ۵ گل بازی تموم می‌شه
 
 # 🏆 رنک‌ها
 RANKS = [
