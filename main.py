@@ -14,7 +14,6 @@ import migration
 bot = telebot.TeleBot(TOKEN)
 admin_states = {}
 
-# 🛠 تابع امنیتی برای جلوگیری از کرش کردن پیام‌های عکس‌دار
 def edit_to_text(chat_id, msg_id, text, markup=None):
     try:
         bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, reply_markup=markup, parse_mode='Markdown')
@@ -120,20 +119,15 @@ def handle_reply(message):
     uid = message.from_user.id
     if is_banned(uid): return
     
-    # اگه روی پیام خودش یا بات ریپلای زده بود، هیچ کاری نکن
     target_user = message.reply_to_message.from_user
     if target_user.id == uid or target_user.is_bot: return 
     
     abilities = get_abilities(uid)
     if not abilities: return
         
-    # 🔍 چک میکنیم آیا متنی که نوشته، اسم یه Ability هست یا نه
     ab = find_ability(message.text, abilities)
-    
-    # 🛑 اگه متن عادی بود (مثل سلام)، بات کاملاً ساکت میمونه و هیچ اروری نمیده
     if not ab: return 
     
-    # از اینجا به بعد یعنی کاربر واقعاً داره حمله میکنه
     status, msg = check_rip_status(uid)
     if not status: 
         bot.reply_to(message, msg, parse_mode='Markdown')
@@ -151,54 +145,73 @@ def handle_reply(message):
     user_slots = get_slots(uid)
     markup = types.InlineKeyboardMarkup(row_width=1)
     for slot in user_slots:
-        markup.add(types.InlineKeyboardButton(f"⚔ {slot[2]}", callback_data=f"attack_{uid}_{target_user.id}_{ab[0]}_{slot[1]}"))
+        # 🔒 آیدی هدف و مهاجم و Ability رو ذخیره میکنیم
+        markup.add(types.InlineKeyboardButton(f"⚔ {slot[2]}", callback_data=f"atk_{target_user.id}_{uid}_{ab[0]}_{slot[1]}"))
     
     text = f"🎯 **انتخاب مهاجم**\n\nشما می‌خواهید با Ability **{ab[2]}** به {target_user.first_name} حمله کنید.\nبا کدوم کاراکترت حمله می‌کنی؟"
     bot.reply_to(message, text, reply_markup=markup, parse_mode='Markdown')
 
-def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
+def start_defense_phase(chat_id, attacker_id, target_id, ability_id, char_id):
     conn = db(); c = conn.cursor()
-    c.execute("SELECT name_fa, name_en, power FROM abilities WHERE id=?", (ability_id,))
-    ab = c.fetchone()
+    c.execute("SELECT name_fa FROM abilities WHERE id=?", (ability_id,))
+    ab_name = c.fetchone()[0]
+    conn.close()
+    
+    markup = types.InlineKeyboardMarkup()
+    # 🔒 دکمه دفاع برای کاربر هدف (target_id)
+    markup.add(types.InlineKeyboardButton("🛡 دفاع می‌کنم", callback_data=f"def_{attacker_id}_{target_id}_{ability_id}_{char_id}"))
+    markup.add(types.InlineKeyboardButton("❌ فرار می‌کنم", callback_data=f"flee_{attacker_id}_{target_id}_{ability_id}_{char_id}"))
+    
+    text = f"⚠️ **هشدار حمله!**\n\nیک کاربر با Ability **{ab_name}** به شما حمله کرده!\nآیا می‌خواهید دفاع کنید؟"
+    bot.send_message(target_id, text, reply_markup=markup, parse_mode='Markdown')
+
+def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id, defense_ability_id=None):
+    conn = db(); c = conn.cursor()
+    c.execute("SELECT name_fa, power FROM abilities WHERE id=?", (ability_id,))
+    atk_ab = c.fetchone()
     
     c.execute("SELECT name FROM characters WHERE id=?", (char_id,))
     attacker_char = c.fetchone()[0]
     
     target_slots = get_slots(target_id)
     if not target_slots: return
-    target_char = random.choice(target_slots)
     
-    c.execute("SELECT defense FROM characters WHERE id=?", (target_char[1],))
-    defense = c.fetchone()[0]
+    # اگه مدافع دفاع کرده باشه، کاراکتر و قدرتش رو حساب میکنیم
+    def_power = 0
+    target_char = random.choice(target_slots)
+    if defense_ability_id:
+        c.execute("SELECT name_fa, power FROM abilities WHERE id=?", (defense_ability_id,))
+        def_ab = c.fetchone()
+        def_power = def_ab[1]
+        c.execute("SELECT name FROM characters WHERE id=?", (target_char[1],)) # کاراکتر تصادفی هدف
+        target_char_name = c.fetchone()[0]
+    else:
+        target_char_name = "بدون دفاع"
     
     c.execute("SELECT name FROM users WHERE user_id=?", (target_id,))
     target_name = c.fetchone()[0]
     conn.close()
     
-    multiplier = 1.0
-    ev = get_active_event()
-    if ev:
-        if ev[2] == "global": multiplier = ev[4]
-        elif ev[2] == "attack" and target_char[1] == ev[3]: multiplier = ev[4]
-        elif ev[2] == "ability" and ability_id == ev[3]: multiplier = ev[4]
-    
     energy_left, exhausted_until = consume_energy(attacker_id)
-    res, diff = simulate(ab[2], defense)
     
-    if res == "goal":
-        base_pts = 10 if diff > 20 else 7
-        pts = int(base_pts * multiplier)
-        text = f"⚽✨ **گل!!!** ✨⚽\n\n🎯 با **{attacker_char}** و **{ab[0]}** از **{target_char[2]}** (مال {target_name}) رد شدی!\n\n💪 قدرت: {ab[2]} vs 🛡 دفاع: {defense}\n🏆 +{pts} امتیاز"
+    # محاسبه شانس موفقیت
+    atk_power = atk_ab[1] + random.randint(-10, 10)
+    def_power_roll = def_power + random.randint(-10, 10)
+    
+    if atk_power > def_power_roll:
+        res = "goal"
+        pts = 10
+        text = f"⚽✨ **گل!!!** ✨⚽\n\n🎯 **{attacker_char}** با **{atk_ab[0]}** از **{target_name}** رد شد!\n\n💪 قدرت حمله: {atk_ab[1]} vs 🛡 دفاع: {def_power}\n🏆 +{pts} امتیاز"
     else:
-        pts = int(-5 * multiplier)
-        text = f"🧤✨ **مهار!** ✨🧤\n\n🛡 **{target_char[2]}** (مال {target_name}) جلوی **{ab[0]}** رو گرفت!\n\n💪 قدرت: {ab[2]} vs 🛡 دفاع: {defense}\n🏆 {pts} امتیاز"
+        res = "save"
+        pts = -5
+        text = f"🧤✨ **مهار!** ✨🧤\n\n🛡 **{target_name}** با دفاع **{def_power}** جلوی **{atk_ab[0]}** رو گرفت!\n\n💪 قدرت حمله: {atk_ab[1]} vs 🛡 دفاع: {def_power}\n🏆 {pts} امتیاز"
         
-    if multiplier > 1.0: text += f"\n🎉 (رویداد: {multiplier}x)"
-    if exhausted_until > 0: text += f"\n\n😵 **انرژی تموم شد!**\n⏱ باید ۲ دقیقه استراحت کنی."
+    if exhausted_until > 0: text += f"\n\n😵 **انرژی تموم شد!**"
         
     conn = db(); c = conn.cursor()
     c.execute("UPDATE users SET rank_points=rank_points+? WHERE user_id=?", (pts, attacker_id))
-    log_history(attacker_id, target_id, ab[1], res, pts)
+    log_history(attacker_id, target_id, atk_ab[0], res, pts)
     
     if res == "goal":
         c.execute("UPDATE users SET goals=goals+1, game_goals=game_goals+1 WHERE user_id=?", (attacker_id,))
@@ -208,37 +221,76 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
     conn.commit(); conn.close()
     set_ab_cd(attacker_id, ability_id)
     
-    if res == "goal" and gg >= MAX_GOALS:
-        text += f"\n\n🎉✨ بازی تموم شد! {MAX_GOALS} گل زدی! ✨🎉"
-        conn = db(); c = conn.cursor(); c.execute("UPDATE users SET game_goals=0 WHERE user_id=?", (attacker_id,)); conn.commit(); conn.close()
-        
     bot.send_message(chat_id, text, parse_mode='Markdown')
 
 @bot.callback_query_handler(func=lambda c: True)
 def cb(call):
     uid = call.from_user.id; data = call.data; chat_id = call.message.chat.id; msg_id = call.message.message_id
     
-    # 🔒 استخراج آیدی صاحب منو از دیتای دکمه
     parts = data.split("_")
     owner_uid = None
     try:
         if parts[-1].isdigit(): owner_uid = int(parts[-1])
     except: pass
 
-    # 🔒 قفل امنیتی: اگه صاحب منو با کسی که کلیک کرده فرق داشت
     if owner_uid and uid != owner_uid:
-        bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست! خودت منو رو باز کن.", show_alert=True)
-        return
-        
-    if data.startswith("attack_"):
-        _, attacker_id, target_id, ability_id, char_id = data.split("_")
-        try: bot.edit_message_text("⏳ در حال شبیه‌سازی...", chat_id=chat_id, message_id=msg_id)
-        except: pass
-        execute_attack(chat_id, uid, int(target_id), int(ability_id), int(char_id))
-        bot.answer_callback_query(call.id)
+        bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست!", show_alert=True)
         return
 
-    if data.startswith("menu_slots"):
+    # ⚔️ شروع حمله (انتخاب کاراکتر)
+    if data.startswith("atk_"):
+        _, target_id, attacker_id, ability_id, char_id = data.split("_")
+        if uid != int(attacker_id): return
+        try: bot.delete_message(chat_id, msg_id)
+        except: pass
+        start_defense_phase(chat_id, int(attacker_id), int(target_id), int(ability_id), int(char_id))
+        bot.answer_callback_query(call.id, "حمله آغاز شد! منتظر دفاع حریف باشید.")
+        return
+        
+    # 🛡 کاربر مدافع دکمه دفاع رو میزنه
+    elif data.startswith("def_"):
+        _, attacker_id, target_id, ability_id, char_id = data.split("_")
+        if uid != int(target_id):
+            bot.answer_callback_query(call.id, "⛔ این حمله برای شما نیست!", show_alert=True); return
+            
+        conn = db(); c = conn.cursor()
+        c.execute("""SELECT a.id, a.name_fa FROM abilities a
+                     JOIN character_abilities ca ON a.id = ca.ability_id
+                     JOIN user_slots us ON ca.character_id = us.character_id
+                     WHERE us.user_id = ? AND a.category = 'defend'""", (uid,))
+        def_abs = c.fetchall(); conn.close()
+        
+        if not def_abs:
+            bot.edit_message_text("❌ شما هیچ Ability دفاعی ندارید! مجبورید فرار کنید.", chat_id=chat_id, message_id=msg_id)
+            execute_attack(chat_id, int(attacker_id), int(target_id), int(ability_id), int(char_id))
+            bot.answer_callback_query(call.id)
+            return
+            
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for ab in def_abs:
+            markup.add(types.InlineKeyboardButton(ab[1], callback_data=f"execdef_{attacker_id}_{target_id}_{ability_id}_{char_id}_{ab[0]}"))
+        bot.edit_message_text("🛡 **انتخاب Ability دفاعی:**", chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+        bot.answer_callback_query(call.id)
+        
+    # 🛡 اجرای دفاع (مدافع Ability انتخاب میکنه)
+    elif data.startswith("execdef_"):
+        _, attacker_id, target_id, ability_id, char_id, def_ab_id = data.split("_")
+        if uid != int(target_id): return
+        try: bot.delete_message(chat_id, msg_id)
+        except: pass
+        execute_attack(chat_id, int(attacker_id), int(target_id), int(ability_id), int(char_id), int(def_ab_id))
+        bot.answer_callback_query(call.id)
+        
+    # ❌ فرار (مدافع قبول میکنه گل بخوره)
+    elif data.startswith("flee_"):
+        _, attacker_id, target_id, ability_id, char_id = data.split("_")
+        if uid != int(target_id): return
+        try: bot.delete_message(chat_id, msg_id)
+        except: pass
+        execute_attack(chat_id, int(attacker_id), int(target_id), int(ability_id), int(char_id))
+        bot.answer_callback_query(call.id, "شما فرار کردید و گل خوردید!")
+
+    elif data.startswith("menu_slots"):
         slots = get_slots(uid)
         text = "🛡✨ **اسلات‌های کاراکتر شما** ✨🛡\n\n"
         for i in range(1,4):
