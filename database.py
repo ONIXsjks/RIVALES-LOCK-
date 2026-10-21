@@ -92,11 +92,8 @@ def seed():
         try: c.execute("INSERT INTO abilities (name_en,name_fa,aliases,power,cooldown,category,owner) VALUES (?,?,?,?,?,?,?)", ab)
         except: pass
     
-    # 🔧 رفع باگ Abilityها
-    c.execute("INSERT OR IGNORE INTO character_abilities (character_id,ability_id) SELECT c.id,a.id FROM characters c, abilities a WHERE c.name=a.owner")
-    c.execute('''INSERT OR IGNORE INTO character_abilities (character_id, ability_id)
+    # 🔧 باگ‌گیری: به هر کاراکتری که Ability نداره، ۴ تا Ability رندوم بده
+    conn.execute('''INSERT OR IGNORE INTO character_abilities (character_id, ability_id)
                  SELECT c.id, a.id FROM characters c, abilities a 
-                 WHERE c.id NOT IN (SELECT character_id FROM character_abilities) 
-                 AND a.category IN ('shot', 'dribble', 'defend') 
-                 GROUP BY c.id HAVING COUNT(a.id) <= 3''')
+                 WHERE c.id NOT IN (SELECT DISTINCT character_id FROM character_abilities)''')
     conn.commit(); conn.close()
