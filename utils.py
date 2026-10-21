@@ -3,9 +3,11 @@ import random
 from config import RANKS, ABILITY_COOLDOWN, ENERGY_COST, EXHAUSTION_TIME
 from database import db
 
-def get_rank(p):
-    for t,n,e in reversed(RANKS):
-        if p >= t: return n, e
+def get_rank(points):
+    if points is None: points = 0
+    for t, n, e in reversed(RANKS):
+        if points >= t: 
+            return n, e
     return RANKS[0][1], RANKS[0][2]
 
 def is_banned(uid):
@@ -49,7 +51,7 @@ def check_rip_status(uid):
     if r[2] and r[2] > now: return False, f"😵 خسته شدی! انرژی صفره.\n⏱ {int(r[2] - now)} ثانیه دیگه استراحت کن."
     if r[0] and now - r[0] < 10: return False, f"⏳ صبر کن! {int(10 - (now - r[0]))} ثانیه تا ریپ بعدی."
     
-    if r[1] < max_energy:
+    if r[1] is None or r[1] < max_energy:
         conn = db(); c = conn.cursor(); c.execute("UPDATE users SET energy=? WHERE user_id=?", (max_energy, uid)); conn.commit(); conn.close()
         
     return True, ""
@@ -58,7 +60,7 @@ def consume_energy(uid):
     conn = db(); c = conn.cursor()
     c.execute("SELECT energy, rank_points FROM users WHERE user_id=?", (uid,))
     r = c.fetchone()
-    energy = r[0] or 100
+    energy = r[0] if r[0] is not None else 100
     _, max_energy = get_rank(r[1])
     
     new_energy = energy - ENERGY_COST
