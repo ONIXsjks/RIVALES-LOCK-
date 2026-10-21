@@ -36,6 +36,8 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, event_type TEXT, target_id INTEGER, 
         multiplier REAL, ends_at INTEGER, is_active INTEGER DEFAULT 1)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS bans (
+        user_id INTEGER PRIMARY KEY, reason TEXT, banned_at INTEGER, banned_by INTEGER)''')
     conn.commit(); conn.close()
 
 CHARACTERS = [
@@ -56,7 +58,7 @@ CHARACTERS = [
     ("Nanase","world_class",70,70,65),
 ]
 
-# اضافه شدن Abilityهای بیشتر از مانگا (قیمت زیر 100000)
+# Abilityهای بیشتر (با قیمت‌های زیر 100,000)
 ABILITIES = [
     ("Direct Shot","شوت مستقیم","directshot",80,20,"shot","Isagi Yoichi",0),
     ("Metavision","دید فراگیر","metavision",85,20,"defend","Isagi Yoichi",800),
@@ -108,7 +110,73 @@ ABILITIES = [
     ("Aiku Defense","دفاع آیکو","aikudef",90,20,"defend","Oliver Aiku",10000),
     ("Aiku Header","ضربه سر آیکو","aikuheader",85,20,"shot","Oliver Aiku",9000),
     
-    # ... (بقیه کاراکترها هم به همین شکل Ability اضافه میشه، برای جلوگیری از طولانی شدن، فقط چند نمونه)
+    # Abilityهای اختصاصی برای بقیه کاراکترها (برای پر شدن فروشگاه)
+    ("Sniper Shot","شوت تک‌تیرانداز","sniper",85,20,"shot","Kenyu Yukimiya",0),
+    ("Gyro Dribble","دریبل چرخشی","gyrodrib",80,20,"dribble","Kenyu Yukimiya",7000),
+    ("Iron Wall","دیوار آهنی","ironwall",90,20,"defend","Jyubei Aryu",0),
+    ("Aryu Header","ضربه سر آریو","aryuheader",85,20,"shot","Jyubei Aryu",8000),
+    ("Aura Defense","دفاع هاله‌ای","aura",90,20,"defend","Don Lorenzo",0),
+    ("Monster Mode","حالت هیولا","monster",95,20,"special","Don Lorenzo",20000),
+    ("God Mode","حالت خدا","godmode",100,20,"special","Noel Noa",30000),
+    ("Noa Shot","شوت نوآ","noashot",95,20,"shot","Noel Noa",15000),
+    ("Samba Dribble","دریبل سامبا","samba",95,20,"dribble","Lavinho",0),
+    ("Lavinho Shot","شوت لاوینیو","lavishot",90,20,"shot","Lavinho",10000),
+    ("God Speed","سرعت خدا","godspeed",95,20,"dribble","Julian Loki",0),
+    ("Loki Shot","شوت لوکی","lokishot",85,20,"shot","Julian Loki",9000),
+    ("Ness Pass","پاس نس","ness",75,20,"dribble","Alexis Ness",0),
+    ("Ness Shot","شوت نس","nessshot",80,20,"shot","Alexis Ness",7000),
+    ("Hiori Pass","پاس هیوری","hiori",80,20,"dribble","Yo Hiori",0),
+    ("Hiori Vision","دید هیوری","hiorivision",80,20,"defend","Yo Hiori",7000),
+    ("Karasu Defense","دفاع کاراسو","karasu",85,20,"defend","Tabito Karasu",0),
+    ("Karasu Shot","شوت کاراسو","karasushot",75,20,"shot","Tabito Karasu",6000),
+    ("Block","بلاک","block",75,20,"defend","Ikki Niko",0),
+    ("Niko Vision","دید نیکو","nikovision",75,20,"defend","Ikki Niko",6000),
+    ("Otoya Stealth","مخفی‌کاری اوتویا","otoya",80,20,"dribble","Eita Otoya",0),
+    ("Otoya Shot","شوت اوتویا","otoyashot",80,20,"shot","Eita Otoya",7000),
+    ("Kurona Dash","جهش کورونا","kurona",80,20,"dribble","Ranze Kurona",0),
+    ("Kurona Defense","دفاع کورونا","koronadef",80,20,"defend","Ranze Kurona",7000),
+    ("Gagamaru Save","سیو گاگامارو","gagamaru",90,20,"defend","Gin Gagamaru",0),
+    ("Wild Save","سیو وحشی","wildsave",95,20,"special","Gin Gagamaru",15000),
+    ("Sendo Strike","ضربه سندو","sendo",85,20,"shot","Sendo",0),
+    ("Sendo Dribble","دریبل سندو","sendodrib",75,20,"dribble","Sendo",6000),
+    ("Zantetsu Dash","جهش زانتتسو","zantetsu",80,20,"dribble","Zantetsu",0),
+    ("Zantetsu Shot","شوت زانتتسو","zantetsushot",75,20,"shot","Zantetsu",6000),
+    ("Nanase Stamina","استقامت ناناسه","nanase",80,20,"defend","Nanase",0),
+    ("Nanase Dribble","دریبل ناناسه","nanasedrib",75,20,"dribble","Nanase",6000),
+    ("Igaguri Foul","خطای ایگاگوری","igaguri",60,20,"defend","Igaguri",0),
+    ("Igaguri Dive","شیرجه ایگاگوری","dive",55,20,"defend","Igaguri",4000),
+    ("Kusu Control","کنترل کوسو","kusu",75,20,"dribble","Kusu",0),
+    ("Kusu Shot","شوت کوسو","kusushot",75,20,"shot","Kusu",6000),
+    ("Agi Control","کنترل آگی","agi",75,20,"dribble","Agi",0),
+    ("Agi Shot","شوت آگی","agishot",75,20,"shot","Agi",6000),
+    ("Mikage Copy","کپی میکاگه","mikage",85,20,"special","Reo Mikage",0),
+    ("Reo Dribble","دریبل رئو","reodrib",80,20,"dribble","Reo Mikage",7000),
+    ("Kiyora Vision","دید کیورا","kiyora",80,20,"defend","Jin Kiyora",0),
+    ("Kiyora Dribble","دریبل کیورا","kiyoradrib",80,20,"dribble","Jin Kiyora",7000),
+    ("Onazi Shot","شوت اونازی","onazi",75,20,"shot","Onazi",0),
+    ("Onazi Defense","دفاع اونازی","onazidef",70,20,"defend","Onazi",5000),
+    ("Knight Shield","سپر نایت","knight",80,20,"defend","Teddy Knight",0),
+    ("Knight Shot","شوت نایت","knightshot",75,20,"shot","Teddy Knight",6000),
+    ("Chevalier Step","قدم شوالیه","chevalier",80,20,"dribble","Charles Chevalier",0),
+    ("Chevalier Defense","دفاع شوالیه","chevdef",75,20,"defend","Charles Chevalier",6000),
+    ("Snuffy Snake","مار اسنافی","snuffy",85,20,"shot","Mark Snuffy",0),
+    ("Snuffy Defense","دفاع اسنافی","snuffydef",80,20,"defend","Mark Snuffy",7000),
+    ("Cavascoz Magic","جادوی کاواسکوز","cavascoz",85,20,"dribble","Pablo Cavascoz",0),
+    ("Cavascoz Shot","شوت کاواسکوز","cavshot",80,20,"shot","Pablo Cavascoz",7000),
+    ("Silva Wall","دیوار سیلوا","silva",90,20,"defend","Dada Silva",0),
+    ("Silva Shot","شوت سیلوا","silvashot",85,20,"shot","Dada Silva",8000),
+    ("Blake Speed","سرعت بلیک","blake",85,20,"dribble","Blake",0),
+    ("Blake Shot","شوت بلیک","blakeshot",80,20,"shot","Blake",7000),
+    ("Prince Power","قدرت پرینس","prince",90,20,"shot","Chris Prince",0),
+    ("Perfect Body","بدن کامل","perfectbody",95,20,"defend","Chris Prince",15000),
+    ("Luna Shot","شوت لونا","luna",90,20,"shot","Leonardo Luna",0),
+    ("Night Defense","دفاع شب","nightdef",85,20,"defend","Leonardo Luna",8000),
+    ("Bunny Hop","پرش خرگوشی","bunny",80,20,"dribble","Bunny Iglesias",0),
+    ("Bunny Speed","سرعت خرگوشی","bunnyspeed",80,20,"dribble","Bunny Iglesias",7000),
+    ("Lock Defense","دفاع قفل","lock",85,20,"defend","Lockhart",0),
+    ("Lock Dribble","دریبل قفل","lockdrib",75,20,"dribble","Lockhart",6000),
+    ("Hugo Defense","دفاع هوگو","hugo",80,20,"defend","Vivian Hugo",0),
+    ("Wall Defense","دفاع دیواری","walldef",85,20,"defend","Vivian Hugo",8000),
 ]
 
 def seed():
