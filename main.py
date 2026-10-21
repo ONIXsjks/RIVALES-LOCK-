@@ -228,24 +228,16 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id, defense
     set_ab_cd(attacker_id, ability_id)
     
     bot.send_message(chat_id, text, parse_mode='Markdown')
-
 @bot.callback_query_handler(func=lambda c: True)
 def cb(call):
     uid = call.from_user.id; data = call.data; chat_id = call.message.chat.id; msg_id = call.message.message_id
     
-    parts = data.split("_")
-    owner_uid = None
-    try:
-        if parts[-1].isdigit(): owner_uid = int(parts[-1])
-    except: pass
-
-    if owner_uid and uid != owner_uid:
-        bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست!", show_alert=True)
-        return
-
+    # 🔒 قفل امنیتی: فقط برای دکمه‌های حمله و دفاع (چون توشون آیدی صاحب منو هست)
     if data.startswith("atk_"):
         _, target_id, attacker_id, ability_id, char_id = data.split("_")
-        if uid != int(attacker_id): return
+        if uid != int(attacker_id):
+            bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست! خودت منو رو باز کن.", show_alert=True)
+            return
         try: bot.delete_message(chat_id, msg_id)
         except: pass
         start_defense_phase(chat_id, int(attacker_id), int(target_id), int(ability_id), int(char_id))
@@ -254,7 +246,8 @@ def cb(call):
         
     elif data.startswith("def_"):
         _, attacker_id, target_id, ability_id, char_id = data.split("_")
-        if uid != int(target_id): return
+        if uid != int(target_id):
+            bot.answer_callback_query(call.id, "⛔ این حمله برای شما نیست!", show_alert=True); return
             
         conn = db(); c = conn.cursor()
         c.execute("""SELECT a.id, a.name_fa FROM abilities a
@@ -278,7 +271,8 @@ def cb(call):
         
     elif data.startswith("execdef_"):
         _, attacker_id, target_id, ability_id, char_id, def_ab_id = data.split("_")
-        if uid != int(target_id): return
+        if uid != int(target_id):
+            bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست!", show_alert=True); return
         try: bot.delete_message(chat_id, msg_id)
         except: pass
         execute_attack(chat_id, int(attacker_id), int(target_id), int(ability_id), int(char_id), int(def_ab_id))
@@ -286,13 +280,15 @@ def cb(call):
         
     elif data.startswith("flee_"):
         _, attacker_id, target_id, ability_id, char_id = data.split("_")
-        if uid != int(target_id): return
+        if uid != int(target_id):
+            bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست!", show_alert=True); return
         try: bot.delete_message(chat_id, msg_id)
         except: pass
         execute_attack(chat_id, int(attacker_id), int(target_id), int(ability_id), int(char_id))
         bot.answer_callback_query(call.id, "فرار کردی و گل خوردی!")
 
-    elif data.startswith("menu_slots"):
+    # ➡️ بقیه دکمه‌ها (بدون قفل امنیتی، چون به دیتابیس خود کاربر وصلن)
+    if data.startswith("menu_slots"):
         slots = get_slots(uid)
         text = "🛡✨ **اسلات‌های کاراکتر شما** ✨🛡\n\n"
         for i in range(1,4):
@@ -382,6 +378,7 @@ def cb(call):
         markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
         edit_to_text(chat_id, msg_id, text, markup)
     
+    # 👑 پنل ادمین
     elif data.startswith("menu_admin") and uid == OWNER_ID:
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(types.InlineKeyboardButton("🖼 عکس بنرها", callback_data=f"adm_images_{uid}"), types.InlineKeyboardButton("📸 عکس کاراکترها", callback_data=f"adm_charimg_{uid}"))
