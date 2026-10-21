@@ -7,7 +7,7 @@ from database import init_db, seed, db
 from utils import (
     get_rank, is_banned, get_user, get_slots, get_abilities,
     check_rip_status, consume_energy, ab_cd, set_ab_cd,
-    find_ability, simulate, get_image, set_image
+    find_ability, simulate, get_image, set_image, log_history
 )
 import migration
 
@@ -16,15 +16,19 @@ admin_states = {}
 
 def show_main_menu(chat_id, uid, name, edit_msg_id=None):
     user = get_user(uid)
-    rank = get_rank(user[2])
-    energy = user[8] if user[8] is not None else 100
-    text = f"🎮✨ **Blue Lock Bot** ✨🎮\n\n👋 سلام {name}!\n🏆 رنک: {rank} ({user[2]} امتیاز)\n⚡ انرژی: {energy}/100\n"
+    rank, max_energy = get_rank(user[2])
+    energy = user[8] if user[8] is not None else max_energy
+    text = f"🎮✨ **Blue Lock Bot** ✨🎮\n\n👋 سلام {name}!\n🏆 رنک: {rank} ({user[2]} امتیاز)\n⚡ انرژی: {energy}/{max_energy}\n"
     if user[9] and user[9] > time.time(): text += f"😵 خسته (تا {int(user[9]-time.time())} ثانیه)\n"
-    text += "\n📌 **چطور بازی کنیم؟**\n1️⃣ اول ۳ تا کاراکتر برای خودت انتخاب کن.\n2️⃣ بعد برو توی گروه و روی پیام یه کاربر دیگه Reply بزن و اسم Ability رو بنویس!\n"
     
+    # چک کردن رویداد فعال
+    conn = db(); c = conn.cursor(); c.execute("SELECT title FROM events WHERE is_active=1"); ev = c.fetchone(); conn.close()
+    if ev: text += f"\n🎉 **رویداد فعال:** {ev[0]}\n"
+        
     markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(types.InlineKeyboardButton("🛡 اسلات‌های من", callback_data="menu_slots"), types.InlineKeyboardButton("📊 پروفایل من", callback_data="menu_profile"))
+    markup.add(types.InlineKeyboardButton("🛡 اسلات‌های من", callback_data="menu_slots"), types.InlineKeyboardButton("👤 پروفایل من", callback_data="menu_profile"))
     markup.add(types.InlineKeyboardButton("🏆 لیدربورد", callback_data="menu_top"), types.InlineKeyboardButton("📖 Abilityها", callback_data="menu_abilities"))
+    markup.add(types.InlineKeyboardButton("📜 تاریخچه بازی", callback_data="menu_history"))
     if uid == OWNER_ID: markup.add(types.InlineKeyboardButton("👑 پنل مالک", callback_data="menu_admin"))
         
     banner = get_image('welcome_banner')
@@ -46,7 +50,7 @@ def start(message):
     show_main_menu(message.chat.id, uid, name)
 
 @bot.message_handler(commands=['slots'])
-def slots_cmd(message):
+def slots_cmd(message, edit_msg_id=None):
     uid = message.from_user.id
     slots = get_slots(uid)
     text = "🛡✨ **اسلات‌های کاراکتر شما** ✨🛡\n\n"
@@ -57,42 +61,50 @@ def slots_cmd(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for i in range(1,4):
         s = next((x for x in slots if x[0]==i), None)
-        label = f"🔄 تغییر اسلات {i} ({s[2][:10]})" if s else f"➕ افزودن به اسلات {i}"
+        label = f"🔄 تغییر اسلات {i} ({s[2][:12]})" if s else f"➕ افزودن به اسلات {i}"
         markup.add(types.InlineKeyboardButton(label, callback_data=f"editslot_{i}"))
     markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-    bot.send_message(message.chat.id, text, reply_markup=markup)
+    
+    if edit_msg_id: bot.edit_message_text(text, chat_id=message.chat.id, message_id=edit_msg_id, reply_markup=markup)
+    else: bot.send_message(message.chat.id, text, reply_markup=markup)
 
-# 📸 بخش پروفایل با عکس
 def show_profile(chat_id, uid, edit_msg_id=None):
     u = get_user(uid)
     slots = get_slots(uid)
-    energy = u[8] if u[8] is not None else 100
+    rank, max_energy = get_rank(u[2])
+    energy = u[8] if u[8] is not None else max_energy
     
-    text = f"👤✨ **پروفایل {u[1]}** ✨👤\n\n🏆 رنک: {get_rank(u[2])} ({u[2]} امتیاز)\n⚽ گل‌ها: {u[3]}\n🧤 مهارها: {u[4]}\n⚡ انرژی: {energy}/100\n\n🎭 **کاراکترهای شما:**\n"
-    if not slots:
-        text += "⚪ هنوز کاراکتری انتخاب نکردی!"
+    text = f"👤✨ **پروفایل {u[1]}** ✨👤\n\n🏆 رنک: {rank} ({u[2]} امتیاز)\n⚡ انرژی: {energy}/{max_energy}\n⚽ گل‌ها: {u[3]}\n🧤 مهارها: {u[4]}\n\n🎭 **کاراکترهای شما:**\n"
+    if not slots: text += "⚪ هنوز کاراکتری انتخاب نکردی!"
     else:
-        for s in slots:
-            text += f"• {s[2]}\n"
+        for s in slots: text += f"• {s[2]}\n"
     
     markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-    
-    # عکس اولین کاراکتر کاربر رو نشون بده
-    photo_id = None
-    if slots:
-        conn = db(); c = conn.cursor()
-        c.execute("SELECT photo_file_id FROM characters WHERE id=?", (slots[0][1],))
-        r = c.fetchone(); conn.close()
-        if r and r[0]: photo_id = r[0]
+    photo_id = slots[0][3] if slots and slots[0][3] else None
     
     if edit_msg_id:
         try: bot.delete_message(chat_id, edit_msg_id)
         except: pass
-        
-    if photo_id:
-        bot.send_photo(chat_id, photo_id, caption=text, reply_markup=markup, parse_mode='Markdown')
+    if photo_id: bot.send_photo(chat_id, photo_id, caption=text, reply_markup=markup, parse_mode='Markdown')
+    else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+
+def show_history(chat_id, uid, edit_msg_id=None):
+    conn = db(); c = conn.cursor()
+    c.execute("""SELECT ability_name, result, points, timestamp FROM history 
+                 WHERE attacker_id=? ORDER BY id DESC LIMIT 10""", (uid,))
+    hist = c.fetchall(); conn.close()
+    
+    text = "📜✨ **۱۰ بازی آخر شما** ✨📜\n\n"
+    if not hist: text += "هنوز بازی نکردی!"
     else:
-        bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+        for h in hist:
+            icon = "⚽ گل" if h[1] == "goal" else "🧤 مهار"
+            sign = "+" if h[2] > 0 else ""
+            text += f"• {h[0]} | {icon} | {sign}{h[2]} امتیاز\n"
+    
+    markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
+    if edit_msg_id: bot.edit_message_text(text, chat_id=chat_id, message_id=edit_msg_id, reply_markup=markup, parse_mode='Markdown')
+    else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda m: m.reply_to_message is not None)
 def handle_reply(message):
@@ -106,7 +118,7 @@ def handle_reply(message):
     if not status: bot.reply_to(message, msg); return
         
     abilities = get_abilities(uid)
-    if not abilities: bot.reply_to(message, "❌ Ability نداری! اول /slots رو بزن و کاراکتر انتخاب کن."); return
+    if not abilities: bot.reply_to(message, "❌ Ability نداری! اول /slots رو بزن."); return
         
     ab = find_ability(message.text, abilities)
     if not ab: bot.reply_to(message, "❌✨ Ability پیدا نشد! ✨❌\n📖 /abilities"); return
@@ -116,7 +128,7 @@ def handle_reply(message):
         
     target_slots = get_slots(target_user.id)
     if not target_slots:
-        bot.reply_to(message, f"❌ {target_user.first_name} هنوز کاراکتر انتخاب نکرده! بگو اول /slots رو بزنه."); return
+        bot.reply_to(message, f"❌ {target_user.first_name} هنوز کاراکتر انتخاب نکرده!"); return
 
     user_slots = get_slots(uid)
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -128,13 +140,11 @@ def handle_reply(message):
 
 def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
     conn = db(); c = conn.cursor()
-    
     c.execute("SELECT name_fa, name_en, power FROM abilities WHERE id=?", (ability_id,))
     ab = c.fetchone()
     
-    c.execute("SELECT name, photo_file_id FROM characters WHERE id=?", (char_id,))
-    attacker_char_data = c.fetchone()
-    attacker_char = attacker_char_data[0]
+    c.execute("SELECT name FROM characters WHERE id=?", (char_id,))
+    attacker_char = c.fetchone()[0]
     
     target_slots = get_slots(target_id)
     if not target_slots: return "❌ هدف کاراکتر ندارد."
@@ -145,22 +155,33 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
     
     c.execute("SELECT name FROM users WHERE user_id=?", (target_id,))
     target_name = c.fetchone()[0]
+    
+    # چک رویداد
+    c.execute("SELECT reward_multiplier FROM events WHERE is_active=1")
+    ev = c.fetchone()
+    multiplier = ev[0] if ev else 1.0
     conn.close()
     
     energy_left, exhausted_until = consume_energy(attacker_id)
     res, diff = simulate(ab[2], defense)
     
     if res == "goal":
-        pts = 10 if diff > 20 else 7
-        text = f"⚽✨ **گل!!!** ✨⚽\n\n🎯 با کاراکتر **{attacker_char}** و Ability **{ab[0]} ({ab[1]})** از **{target_char[2]}** (مال {target_name}) رد شدی!\n\n💪 قدرت: {ab[2]} vs 🛡 دفاع: {defense}\n🏆 +{pts} امتیاز\n⚡ انرژی: {energy_left}/100"
+        base_pts = 10 if diff > 20 else 7
+        pts = int(base_pts * multiplier)
+        text = f"⚽✨ **گل!!!** ✨⚽\n\n🎯 با **{attacker_char}** و **{ab[0]}** از **{target_char[2]}** (مال {target_name}) رد شدی!\n\n💪 قدرت: {ab[2]} vs 🛡 دفاع: {defense}\n🏆 +{pts} امتیاز"
     else:
-        pts = -5
-        text = f"🧤✨ **مهار!** ✨🧤\n\n🛡 کاراکتر **{target_char[2]}** (مال {target_name}) جلوی **{ab[0]}** رو گرفت!\n\n💪 قدرت: {ab[2]} vs 🛡 دفاع: {defense}\n🏆 {pts} امتیاز\n⚡ انرژی: {energy_left}/100"
+        pts = int(-5 * multiplier)
+        text = f"🧤✨ **مهار!** ✨🧤\n\n🛡 **{target_char[2]}** (مال {target_name}) جلوی **{ab[0]}** رو گرفت!\n\n💪 قدرت: {ab[2]} vs 🛡 دفاع: {defense}\n🏆 {pts} امتیاز"
         
+    if multiplier > 1.0: text += f"\n🎉 (جایزه رویداد: {multiplier}x)"
     if exhausted_until > 0: text += f"\n\n😵 **انرژی تموم شد!**\n⏱ باید ۲ دقیقه استراحت کنی."
         
     conn = db(); c = conn.cursor()
     c.execute("UPDATE users SET rank_points=rank_points+? WHERE user_id=?", (pts, attacker_id))
+    
+    # ذخیره تاریخچه
+    log_history(attacker_id, target_id, ab[1], res, pts)
+    
     if res == "goal":
         c.execute("UPDATE users SET goals=goals+1, game_goals=game_goals+1 WHERE user_id=?", (attacker_id,))
         c.execute("SELECT game_goals FROM users WHERE user_id=?", (attacker_id,)); gg = c.fetchone()[0]
@@ -179,12 +200,9 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
 def cb(call):
     uid = call.from_user.id; data = call.data; chat_id = call.message.chat.id; msg_id = call.message.message_id
     
-    if data == "menu_slots": 
-        slots_cmd(call.message)
-        bot.answer_callback_query(call.id)
-    elif data == "menu_profile":
-        show_profile(chat_id, uid, msg_id)
-        bot.answer_callback_query(call.id)
+    if data == "menu_slots": slots_cmd(call.message, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
+    elif data == "menu_profile": show_profile(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
+    elif data == "menu_history": show_history(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
     elif data.startswith("attack_"):
         _, target_id, ability_id, char_id = data.split("_")
         bot.edit_message_text("⏳ در حال شبیه‌سازی...", chat_id=chat_id, message_id=msg_id)
@@ -221,22 +239,42 @@ def cb(call):
         _, sn, cid = data.split("_")
         conn = db(); c = conn.cursor(); c.execute("INSERT OR REPLACE INTO user_slots (user_id,slot_number,character_id) VALUES (?,?,?)", (uid, int(sn), int(cid))); conn.commit(); conn.close()
         bot.answer_callback_query(call.id, "✅ کاراکتر انتخاب شد!")
-        slots_cmd(call.message)
+        slots_cmd(call.message, edit_msg_id=msg_id)
+    
+    # 👑 پنل ادمین
     elif data == "menu_admin" and uid == OWNER_ID:
-        show_admin(call)
-    elif data == "adm_stats" and uid == OWNER_ID:
-        conn = db(); c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM users"); uc = c.fetchone()[0]
-        c.execute("SELECT SUM(goals) FROM users"); g = c.fetchone()[0] or 0
-        conn.close()
-        t = f"📊✨ آمار کلی ✨📊\n\n👥 {uc}\n⚽ {g}"
-        bot.edit_message_text(t, chat_id=chat_id, message_id=msg_id)
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(types.InlineKeyboardButton("🖼 عکس بنرها", callback_data="adm_images"), types.InlineKeyboardButton("📸 عکس کاراکترها", callback_data="adm_charimg"))
+        markup.add(types.InlineKeyboardButton("🎉 ساخت رویداد", callback_data="adm_event"), types.InlineKeyboardButton("🚫 بن کاربر", callback_data="adm_ban"))
+        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
+        bot.edit_message_text("👑✨ **پنل مالک** ✨👑", chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+        bot.answer_callback_query(call.id)
+    elif data == "adm_charimg" and uid == OWNER_ID:
+        conn = db(); c = conn.cursor(); c.execute("SELECT id,name FROM characters ORDER BY name ASC"); chars = c.fetchall(); conn.close()
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        for ch in chars: markup.add(types.InlineKeyboardButton(ch[1], callback_data=f"setcimg_{ch[0]}"))
+        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="menu_admin"))
+        bot.edit_message_text("📸 **انتخاب کاراکتر برای گذاشتن عکس:**", chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+        bot.answer_callback_query(call.id)
+    elif data.startswith("setcimg_") and uid == OWNER_ID:
+        cid = int(data.split("_")[1])
+        admin_states[uid] = f"wait_charimg_{cid}"
+        bot.edit_message_text("📸 **حالا عکس این کاراکتر رو بفرست:**", chat_id=chat_id, message_id=msg_id)
+        bot.answer_callback_query(call.id)
+    elif data == "adm_event" and uid == OWNER_ID:
+        admin_states[uid] = "wait_event_title"
+        bot.edit_message_text("🎉 **اسم رویداد رو بفرست:**\n(مثلاً: ریپ روی Rin ۲ برابر)", chat_id=chat_id, message_id=msg_id)
+        bot.answer_callback_query(call.id)
+    elif data == "adm_ban" and uid == OWNER_ID:
+        admin_states[uid] = "wait_ban_id"
+        bot.edit_message_text("🚫 **آیدی عددی کاربری که می‌خوای بن کنی رو بفرست:**", chat_id=chat_id, message_id=msg_id)
         bot.answer_callback_query(call.id)
     elif data == "adm_images" and uid == OWNER_ID:
         markup = types.InlineKeyboardMarkup(row_width=2)
-        for k in ['welcome_banner','rank_bronze','rank_silver','rank_gold','rank_bluelock','rank_legend','event_banner','profile_default']:
+        for k in ['welcome_banner','rank_bronze','rank_silver','rank_gold','rank_bluelock','rank_legend']:
             markup.add(types.InlineKeyboardButton(k, callback_data=f"imgset_{k}"))
-        bot.edit_message_text("🖼✨ انتخاب عکس ✨🖼", chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="menu_admin"))
+        bot.edit_message_text("🖼✨ انتخاب بنر ✨🖼", chat_id=chat_id, message_id=msg_id, reply_markup=markup)
         bot.answer_callback_query(call.id)
     elif data.startswith("imgset_") and uid == OWNER_ID:
         key = data.replace("imgset_", "")
@@ -244,29 +282,21 @@ def cb(call):
         bot.edit_message_text(f"🖼✨ {key} ✨🖼\n\n📌 عکس رو بفرست!", chat_id=chat_id, message_id=msg_id)
         bot.answer_callback_query(call.id)
 
-def show_admin(call):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(types.InlineKeyboardButton("🖼 عکس‌ها", callback_data="adm_images"), types.InlineKeyboardButton("📊 آمار کلی", callback_data="adm_stats"))
-    markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-    bot.edit_message_text("👑✨ **پنل مالک** ✨👑", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
-    bot.answer_callback_query(call.id)
-
-# هندلر عکس (هم برای پروفایل کاراکترها و هم بنرها)
+# هندلر عکس
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     uid = message.from_user.id
     state = admin_states.get(uid)
-    if state and state.startswith("wait_img_"):
-        key = state.replace("wait_img_", "")
-        set_image(key, message.photo[-1].file_id, uid)
+    if state:
+        if state.startswith("wait_img_"):
+            key = state.replace("wait_img_", "")
+            set_image(key, message.photo[-1].file_id, uid)
+        elif state.startswith("wait_charimg_"):
+            cid = int(state.replace("wait_charimg_", ""))
+            conn = db(); c = conn.cursor(); c.execute("UPDATE characters SET photo_file_id=? WHERE id=?", (message.photo[-1].file_id, cid)); conn.commit(); conn.close()
+            bot.reply_to(message, "✅ عکس کاراکتر ذخیره شد!")
         del admin_states[uid]
-        bot.reply_to(message, f"✅✨ {key} ست شد! ✨✅")
         return
-
-    # اگه ادمین روی پیام کاراکتر ریپلای زده بود و عکس فرستاد
-    if uid == OWNER_ID and message.reply_to_message:
-        if message.reply_to_message.text and "کاراکتر" in message.reply_to_message.text:
-            bot.reply_to(message, "برای گذاشتن عکس کاراکتر، با کدوم کاراکتر کار داری؟ (اسمش رو بفرست)")
 
 if __name__ == "__main__":
     migration.migrate()
