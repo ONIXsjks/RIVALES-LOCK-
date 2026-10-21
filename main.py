@@ -14,6 +14,15 @@ import migration
 bot = telebot.TeleBot(TOKEN)
 admin_states = {}
 
+# 🛠 تابع امنیتی برای جلوگیری از کرش کردن پیام‌های عکس‌دار
+def edit_to_text(chat_id, msg_id, text, markup=None):
+    try:
+        bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, reply_markup=markup, parse_mode='Markdown')
+    except Exception:
+        try: bot.delete_message(chat_id, msg_id)
+        except: pass
+        bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+
 def show_main_menu(chat_id, uid, name, edit_msg_id=None):
     user = get_user(uid)
     rank, max_energy = get_rank(user[2])
@@ -25,20 +34,19 @@ def show_main_menu(chat_id, uid, name, edit_msg_id=None):
     if ev: text += f"\n🎉 **رویداد فعال:** {ev[1]}\n"
         
     markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(types.InlineKeyboardButton("🛡 اسلات‌های من", callback_data="menu_slots"), types.InlineKeyboardButton("👤 پروفایل من", callback_data="menu_profile"))
-    markup.add(types.InlineKeyboardButton("🛒 فروشگاه Ability", callback_data="menu_shop"), types.InlineKeyboardButton("📖 Abilityهای من", callback_data="menu_abilities"))
-    markup.add(types.InlineKeyboardButton("🏆 لیدربورد", callback_data="menu_top"), types.InlineKeyboardButton("📜 تاریخچه", callback_data="menu_history"))
-    if uid == OWNER_ID: markup.add(types.InlineKeyboardButton("👑 پنل مالک", callback_data="menu_admin"))
+    # 🔒 در کالبک دیتا، آیدی کاربر رو می‌فرستیم تا کاربر دیگه نتونه دستکاری کنه
+    markup.add(types.InlineKeyboardButton("🛡 اسلات‌های من", callback_data=f"menu_slots_{uid}"), types.InlineKeyboardButton("👤 پروفایل من", callback_data=f"menu_profile_{uid}"))
+    markup.add(types.InlineKeyboardButton("🛒 فروشگاه Ability", callback_data=f"menu_shop_{uid}"), types.InlineKeyboardButton("📖 Abilityهای من", callback_data=f"menu_abilities_{uid}"))
+    markup.add(types.InlineKeyboardButton("🏆 لیدربورد", callback_data=f"menu_top_{uid}"), types.InlineKeyboardButton("📜 تاریخچه", callback_data=f"menu_history_{uid}"))
+    if uid == OWNER_ID: markup.add(types.InlineKeyboardButton("👑 پنل مالک", callback_data=f"menu_admin_{uid}"))
         
     banner = get_image('welcome_banner')
     if edit_msg_id:
-        try:
-            if banner: bot.edit_message_caption(caption=text, chat_id=chat_id, message_id=edit_msg_id, reply_markup=markup, parse_mode='Markdown')
-            else: bot.edit_message_text(text, chat_id=chat_id, message_id=edit_msg_id, reply_markup=markup, parse_mode='Markdown')
+        try: bot.delete_message(chat_id, edit_msg_id)
         except: pass
-    else:
-        if banner: bot.send_photo(chat_id, banner, caption=text, reply_markup=markup, parse_mode='Markdown')
-        else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+        
+    if banner: bot.send_photo(chat_id, banner, caption=text, reply_markup=markup, parse_mode='Markdown')
+    else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -47,25 +55,6 @@ def start(message):
     if not get_user(uid):
         conn = db(); c = conn.cursor(); c.execute("INSERT INTO users (user_id,name) VALUES (?,?)", (uid, name)); conn.commit(); conn.close()
     show_main_menu(message.chat.id, uid, name)
-
-@bot.message_handler(commands=['slots'])
-def slots_cmd(message, edit_msg_id=None):
-    uid = message.from_user.id
-    slots = get_slots(uid)
-    text = "🛡✨ **اسلات‌های کاراکتر شما** ✨🛡\n\n"
-    for i in range(1,4):
-        s = next((x for x in slots if x[0]==i), None)
-        text += f"{i}️⃣ {s[2] if s else '⚪ خالی'}\n"
-    
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    for i in range(1,4):
-        s = next((x for x in slots if x[0]==i), None)
-        label = f"🔄 تغییر اسلات {i} ({s[2][:12]})" if s else f"➕ افزودن به اسلات {i}"
-        markup.add(types.InlineKeyboardButton(label, callback_data=f"editslot_{i}"))
-    markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-    
-    if edit_msg_id: bot.edit_message_text(text, chat_id=message.chat.id, message_id=edit_msg_id, reply_markup=markup)
-    else: bot.send_message(message.chat.id, text, reply_markup=markup)
 
 def show_profile(chat_id, uid, edit_msg_id=None):
     u = get_user(uid)
@@ -78,7 +67,7 @@ def show_profile(chat_id, uid, edit_msg_id=None):
     else:
         for s in slots: text += f"• {s[2]}\n"
     
-    markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
+    markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
     photo_id = slots[0][3] if slots and slots[0][3] else None
     
     if edit_msg_id:
@@ -100,9 +89,8 @@ def show_history(chat_id, uid, edit_msg_id=None):
             sign = "+" if h[2] > 0 else ""
             text += f"• {h[0]} | {icon} | {sign}{h[2]} امتیاز\n"
     
-    markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-    if edit_msg_id: bot.edit_message_text(text, chat_id=chat_id, message_id=edit_msg_id, reply_markup=markup, parse_mode='Markdown')
-    else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+    markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
+    edit_to_text(chat_id, edit_msg_id, text, markup)
 
 def show_shop(chat_id, uid, edit_msg_id=None):
     u = get_user(uid)
@@ -120,15 +108,14 @@ def show_shop(chat_id, uid, edit_msg_id=None):
     
     markup = types.InlineKeyboardMarkup(row_width=2)
     if not shop_abs:
-        text = "🛒✨ **فروشگاه** ✨🛒\n\n👀 هیچ Ability جدیدی برای کاراکترهای شما نیست! (همه رو داری یا کاراکترهات Ability جدیدی ندارن)."
+        text = "🛒✨ **فروشگاه** ✨🛒\n\n👀 هیچ Ability جدیدی برای کاراکترهای شما نیست!"
     else:
         for ab in shop_abs:
-            markup.add(types.InlineKeyboardButton(f"{ab[1]} ({ab[2]}💰)", callback_data=f"buy_{ab[0]}_{ab[2]}"))
+            # 🔒 آیدی کاربر رو به دکمه خرید اضافه میکنیم
+            markup.add(types.InlineKeyboardButton(f"{ab[1]} ({ab[2]}💰)", callback_data=f"buy_{ab[0]}_{ab[2]}_{uid}"))
             
-    markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-    
-    if edit_msg_id: bot.edit_message_text(text, chat_id=chat_id, message_id=edit_msg_id, reply_markup=markup, parse_mode='Markdown')
-    else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+    markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
+    edit_to_text(chat_id, edit_msg_id, text, markup)
 
 @bot.message_handler(func=lambda m: m.reply_to_message is not None)
 def handle_reply(message):
@@ -157,6 +144,7 @@ def handle_reply(message):
     user_slots = get_slots(uid)
     markup = types.InlineKeyboardMarkup(row_width=1)
     for slot in user_slots:
+        # 🔒 اینجا هم uid رو میفرستیم
         markup.add(types.InlineKeyboardButton(f"⚔ {slot[2]}", callback_data=f"attack_{uid}_{target_user.id}_{ab[0]}_{slot[1]}"))
     
     text = f"🎯 **انتخاب مهاجم**\n\nشما می‌خواهید با Ability **{ab[2]}** به {target_user.first_name} حمله کنید.\nبا کدوم کاراکترت حمله می‌کنی؟"
@@ -224,24 +212,48 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
 def cb(call):
     uid = call.from_user.id; data = call.data; chat_id = call.message.chat.id; msg_id = call.message.message_id
     
-    # 🔒 قفل امنیتی: فقط صاحب منو می‌تونه دکمه‌ها رو بزنه
+    # 🔒 استخراج آیدی صاحب منو از دیتای دکمه
+    parts = data.split("_")
+    owner_uid = None
+    try:
+        # چک میکنیم آخرین بخش دیتا آیدی عددی هست یا نه
+        if parts[-1].isdigit():
+            owner_uid = int(parts[-1])
+    except: pass
+
+    # 🔒 قفل امنیتی: اگه آیدی صاحب منو با کسی که کلیک کرده فرق داشت، بلاکش کن
+    if owner_uid and uid != owner_uid:
+        bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست! خودت منو رو باز کن.", show_alert=True)
+        return
+        
     if data.startswith("attack_"):
         _, attacker_id, target_id, ability_id, char_id = data.split("_")
-        if uid != int(attacker_id):
-            bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست!", show_alert=True)
-            return
-        bot.edit_message_text("⏳ در حال شبیه‌سازی...", chat_id=chat_id, message_id=msg_id)
+        try:
+            bot.edit_message_text("⏳ در حال شبیه‌سازی...", chat_id=chat_id, message_id=msg_id)
+        except: pass
         execute_attack(chat_id, uid, int(target_id), int(ability_id), int(char_id))
         bot.answer_callback_query(call.id)
         return
-        
-    # برای بقیه دکمه‌ها (منوها)، چون از chat_id استفاده می‌کنیم، نیازی به قفل نیست مگر اینکه بخوایم.
-    if data == "menu_slots": slots_cmd(call.message, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
-    elif data == "menu_profile": show_profile(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
-    elif data == "menu_history": show_history(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
-    elif data == "menu_shop": show_shop(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
+
+    if data.startswith("menu_slots"):
+        slots = get_slots(uid)
+        text = "🛡✨ **اسلات‌های کاراکتر شما** ✨🛡\n\n"
+        for i in range(1,4):
+            s = next((x for x in slots if x[0]==i), None)
+            text += f"{i}️⃣ {s[2] if s else '⚪ خالی'}\n"
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for i in range(1,4):
+            s = next((x for x in slots if x[0]==i), None)
+            label = f"🔄 تغییر اسلات {i} ({s[2][:12]})" if s else f"➕ افزودن به اسلات {i}"
+            markup.add(types.InlineKeyboardButton(label, callback_data=f"editslot_{i}_{uid}"))
+        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
+        edit_to_text(chat_id, msg_id, text, markup)
+        bot.answer_callback_query(call.id)
+    elif data.startswith("menu_profile"): show_profile(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
+    elif data.startswith("menu_history"): show_history(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
+    elif data.startswith("menu_shop"): show_shop(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
     elif data.startswith("buy_"):
-        _, aid, price = data.split("_")
+        _, aid, price, owner = data.split("_")
         aid = int(aid); price = int(price)
         u = get_user(uid)
         if u[2] < price:
@@ -253,78 +265,90 @@ def cb(call):
             conn.commit(); conn.close()
             bot.answer_callback_query(call.id, "✅ Ability خریداری شد!", show_alert=True)
             show_shop(chat_id, uid, edit_msg_id=msg_id)
-    elif data == "menu_top":
+    elif data.startswith("menu_top"):
         conn = db(); c = conn.cursor(); c.execute("SELECT name,rank_points FROM users ORDER BY rank_points DESC LIMIT 10"); top = c.fetchall(); conn.close()
         t = "🏆✨ **لیدربورد** ✨🏆\n\n"
         for i,(n,p) in enumerate(top,1):
             m = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else f"{i}️⃣"
             t += f"{m} {n}: {p}\n"
-        markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-        bot.edit_message_text(t, chat_id=chat_id, message_id=msg_id, reply_markup=markup, parse_mode='Markdown')
+        markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
+        edit_to_text(chat_id, msg_id, t, markup)
         bot.answer_callback_query(call.id)
-    elif data == "menu_abilities":
+    elif data.startswith("menu_abilities"):
         abs_ = get_abilities(uid)
         t = "📖✨ **Abilityهای شما** ✨📖\n\n" if abs_ else "📖✨ Ability نداری! /slots"
         for a in abs_: t += f"• {a[2]} ({a[1]}) — ⏱{a[5]}s\n"
-        markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-        bot.edit_message_text(t, chat_id=chat_id, message_id=msg_id, reply_markup=markup, parse_mode='Markdown')
+        markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
+        edit_to_text(chat_id, msg_id, t, markup)
         bot.answer_callback_query(call.id)
-    elif data == "back_main": 
+    elif data.startswith("back_main"): 
         show_main_menu(chat_id, uid, call.from_user.first_name, edit_msg_id=msg_id)
         bot.answer_callback_query(call.id)
     elif data.startswith("editslot_"):
-        sn = int(data.split("_")[1])
+        _, sn, owner = data.split("_")
+        sn = int(sn)
         conn = db(); c = conn.cursor(); c.execute("SELECT id,name FROM characters ORDER BY name ASC"); chars = c.fetchall(); conn.close()
         markup = types.InlineKeyboardMarkup(row_width=2)
-        for ch in chars: markup.add(types.InlineKeyboardButton(ch[1], callback_data=f"setchar_{sn}_{ch[0]}"))
-        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-        bot.edit_message_text(f"🎯 انتخاب برای اسلات {sn}", chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+        for ch in chars: markup.add(types.InlineKeyboardButton(ch[1], callback_data=f"setchar_{sn}_{ch[0]}_{uid}"))
+        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"menu_slots_{uid}"))
+        edit_to_text(chat_id, msg_id, f"🎯 انتخاب برای اسلات {sn}", markup)
         bot.answer_callback_query(call.id)
     elif data.startswith("setchar_"):
-        _, sn, cid = data.split("_")
+        _, sn, cid, owner = data.split("_")
         conn = db(); c = conn.cursor(); c.execute("INSERT OR REPLACE INTO user_slots (user_id,slot_number,character_id) VALUES (?,?,?)", (uid, int(sn), int(cid))); conn.commit(); conn.close()
         bot.answer_callback_query(call.id, "✅ کاراکتر انتخاب شد!")
-        slots_cmd(call.message, edit_msg_id=msg_id)
+        
+        slots = get_slots(uid)
+        text = "🛡✨ **اسلات‌های کاراکتر شما** ✨🛡\n\n"
+        for i in range(1,4):
+            s = next((x for x in slots if x[0]==i), None)
+            text += f"{i}️⃣ {s[2] if s else '⚪ خالی'}\n"
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for i in range(1,4):
+            s = next((x for x in slots if x[0]==i), None)
+            label = f"🔄 تغییر اسلات {i} ({s[2][:12]})" if s else f"➕ افزودن به اسلات {i}"
+            markup.add(types.InlineKeyboardButton(label, callback_data=f"editslot_{i}_{uid}"))
+        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
+        edit_to_text(chat_id, msg_id, text, markup)
     
-    # 👑 پنل ادمین
-    elif data == "menu_admin" and uid == OWNER_ID:
+    elif data.startswith("menu_admin") and uid == OWNER_ID:
         markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(types.InlineKeyboardButton("🖼 عکس بنرها", callback_data="adm_images"), types.InlineKeyboardButton("📸 عکس کاراکترها", callback_data="adm_charimg"))
-        markup.add(types.InlineKeyboardButton("🎉 ساخت رویداد", callback_data="adm_event"), types.InlineKeyboardButton("🚫 بن کاربر", callback_data="adm_ban"))
-        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
-        bot.edit_message_text("👑✨ **پنل مالک** ✨👑", chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("🖼 عکس بنرها", callback_data=f"adm_images_{uid}"), types.InlineKeyboardButton("📸 عکس کاراکترها", callback_data=f"adm_charimg_{uid}"))
+        markup.add(types.InlineKeyboardButton("🎉 ساخت رویداد", callback_data=f"adm_event_{uid}"), types.InlineKeyboardButton("🚫 بن کاربر", callback_data=f"adm_ban_{uid}"))
+        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
+        edit_to_text(chat_id, msg_id, "👑✨ **پنل مالک** ✨👑", markup)
         bot.answer_callback_query(call.id)
-    elif data == "adm_charimg" and uid == OWNER_ID:
+    elif data.startswith("adm_charimg") and uid == OWNER_ID:
         conn = db(); c = conn.cursor(); c.execute("SELECT id,name FROM characters ORDER BY name ASC"); chars = c.fetchall(); conn.close()
         markup = types.InlineKeyboardMarkup(row_width=2)
-        for ch in chars: markup.add(types.InlineKeyboardButton(ch[1], callback_data=f"setcimg_{ch[0]}"))
-        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="menu_admin"))
-        bot.edit_message_text("📸 **انتخاب کاراکتر برای گذاشتن عکس:**", chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+        for ch in chars: markup.add(types.InlineKeyboardButton(ch[1], callback_data=f"setcimg_{ch[0]}_{uid}"))
+        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"menu_admin_{uid}"))
+        edit_to_text(chat_id, msg_id, "📸 **انتخاب کاراکتر برای گذاشتن عکس:**", markup)
         bot.answer_callback_query(call.id)
     elif data.startswith("setcimg_") and uid == OWNER_ID:
-        cid = int(data.split("_")[1])
+        _, cid, owner = data.split("_")
         admin_states[uid] = f"wait_charimg_{cid}"
-        bot.edit_message_text("📸 **حالا عکس این کاراکتر رو بفرست:**", chat_id=chat_id, message_id=msg_id)
+        edit_to_text(chat_id, msg_id, "📸 **حالا عکس این کاراکتر رو بفرست:**")
         bot.answer_callback_query(call.id)
-    elif data == "adm_event" and uid == OWNER_ID:
+    elif data.startswith("adm_event") and uid == OWNER_ID:
         admin_states[uid] = "wait_event_title"
-        bot.edit_message_text("🎉 **اسم رویداد رو بفرست:**\n(مثلاً: ریپ روی Rin ۲ برابر)", chat_id=chat_id, message_id=msg_id)
+        edit_to_text(chat_id, msg_id, "🎉 **اسم رویداد رو بفرست:**\n(مثلاً: ریپ روی Rin ۲ برابر)")
         bot.answer_callback_query(call.id)
-    elif data == "adm_ban" and uid == OWNER_ID:
+    elif data.startswith("adm_ban") and uid == OWNER_ID:
         admin_states[uid] = "wait_ban_id"
-        bot.edit_message_text("🚫 **آیدی عددی کاربری که می‌خوای بن کنی رو بفرست:**", chat_id=chat_id, message_id=msg_id)
+        edit_to_text(chat_id, msg_id, "🚫 **آیدی عددی کاربری که می‌خوای بن کنی رو بفرست:**")
         bot.answer_callback_query(call.id)
-    elif data == "adm_images" and uid == OWNER_ID:
+    elif data.startswith("adm_images") and uid == OWNER_ID:
         markup = types.InlineKeyboardMarkup(row_width=2)
         for k in ['welcome_banner','rank_bronze','rank_silver','rank_gold','rank_bluelock','rank_legend']:
-            markup.add(types.InlineKeyboardButton(k, callback_data=f"imgset_{k}"))
-        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="menu_admin"))
-        bot.edit_message_text("🖼✨ انتخاب بنر ✨🖼", chat_id=chat_id, message_id=msg_id, reply_markup=markup)
+            markup.add(types.InlineKeyboardButton(k, callback_data=f"imgset_{k}_{uid}"))
+        markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"menu_admin_{uid}"))
+        edit_to_text(chat_id, msg_id, "🖼✨ انتخاب بنر ✨🖼", markup)
         bot.answer_callback_query(call.id)
     elif data.startswith("imgset_") and uid == OWNER_ID:
-        key = data.replace("imgset_", "")
+        _, key, owner = data.split("_")
         admin_states[uid] = f"wait_img_{key}"
-        bot.edit_message_text(f"🖼✨ {key} ✨🖼\n\n📌 عکس رو بفرست!", chat_id=chat_id, message_id=msg_id)
+        edit_to_text(chat_id, msg_id, f"🖼✨ {key} ✨🖼\n\n📌 عکس رو بفرست!")
         bot.answer_callback_query(call.id)
 
 @bot.message_handler(content_types=['photo'])
@@ -335,6 +359,7 @@ def handle_photo(message):
         if state.startswith("wait_img_"):
             key = state.replace("wait_img_", "")
             set_image(key, message.photo[-1].file_id, uid)
+            bot.reply_to(message, f"✅ بنر {key} ذخیره شد!")
         elif state.startswith("wait_charimg_"):
             cid = int(state.replace("wait_charimg_", ""))
             conn = db(); c = conn.cursor(); c.execute("UPDATE characters SET photo_file_id=? WHERE id=?", (message.photo[-1].file_id, cid)); conn.commit(); conn.close()
