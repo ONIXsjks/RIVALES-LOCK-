@@ -39,14 +39,14 @@ def check_rip_status(uid):
     r = c.fetchone(); conn.close()
     if not r: return False, "شما ثبت‌نام نکرده‌اید."
     now = time.time()
-    if r[2] > now: return False, f"😵 خسته شدی! انرژی صفره.\n⏱ {int(r[2] - now)} ثانیه دیگه استراحت کن."
-    if now - r[0] < 10: return False, f"⏳ صبر کن! {int(10 - (now - r[0]))} ثانیه تا ریپ بعدی."
+    if r[2] and r[2] > now: return False, f"😵 خسته شدی! انرژی صفره.\n⏱ {int(r[2] - now)} ثانیه دیگه استراحت کن."
+    if r[0] and now - r[0] < 10: return False, f"⏳ صبر کن! {int(10 - (now - r[0]))} ثانیه تا ریپ بعدی."
     return True, ""
 
 def consume_energy(uid):
     conn = db(); c = conn.cursor()
     c.execute("SELECT energy FROM users WHERE user_id=?", (uid,))
-    energy = c.fetchone()[0]
+    energy = c.fetchone()[0] or 100
     new_energy = energy - ENERGY_COST
     exhausted = 0
     if new_energy <= 0:
