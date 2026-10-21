@@ -8,18 +8,21 @@ def migrate():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # اضافه کردن ستون انرژی و خستگی به جدول کاربران (اگر وجود نداشته باشه)
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN energy INTEGER DEFAULT 100")
-        print("✅ ستون energy اضافه شد.")
-    except sqlite3.OperationalError:
-        print("ℹ️ ستون energy از قبل وجود داشت.")
+    try: c.execute("ALTER TABLE users ADD COLUMN energy INTEGER DEFAULT 100")
+    except: pass
+    try: c.execute("ALTER TABLE users ADD COLUMN exhausted_until INTEGER DEFAULT 0")
+    except: pass
 
-    try:
-        c.execute("ALTER TABLE users ADD COLUMN exhausted_until INTEGER DEFAULT 0")
-        print("✅ ستون exhausted_until اضافه شد.")
-    except sqlite3.OperationalError:
-        print("ℹ️ ستون exhausted_until از قبل وجود داشت.")
+    c.execute('''CREATE TABLE IF NOT EXISTS user_abilities (
+        user_id INTEGER, ability_id INTEGER, PRIMARY KEY (user_id, ability_id))''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, attacker_id INTEGER, target_id INTEGER, 
+        ability_name TEXT, result TEXT, points INTEGER, timestamp INTEGER)''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, event_type TEXT, target_id INTEGER, 
+        multiplier REAL, ends_at INTEGER, is_active INTEGER DEFAULT 1)''')
 
     conn.commit()
     conn.close()
