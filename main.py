@@ -95,7 +95,7 @@ def show_history(chat_id, uid, edit_msg_id=None):
 def show_shop(chat_id, uid, edit_msg_id=None):
     u = get_user(uid)
     coins = u[10] if len(u) > 10 and u[10] is not None else 0
-    text = f"🛒✨ **فروشگاه Ability** ✨🛒\n\n🪙 سکه شما: {coins}\n\n📌 Ability مورد نظر رو بخر (قیمت‌ها زیر ۱۰۰,۰۰۰):"
+    text = f"🛒✨ **فروشگاه Ability** ✨🛒\n\n🪙 سکه شما: {coins}\n\n📌 Ability مورد نظر رو بخر:"
     
     conn = db(); c = conn.cursor()
     c.execute("""SELECT a.id, a.name_fa, a.price FROM abilities a
@@ -170,7 +170,7 @@ def start_defense_phase(chat_id, attacker_id, target_id, ability_id, char_id):
     except:
         bot.send_message(chat_id, "❌ نتونستم به حریف پیام بدم. باید حتماً بات رو استارت کرده باشه.")
 
-def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id, defense_ability_id=None):
+def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id, defense_ability_id=None, simple_defense=False):
     conn = db(); c = conn.cursor()
     c.execute("SELECT name_fa, power FROM abilities WHERE id=?", (ability_id,))
     atk_ab = c.fetchone()
@@ -184,7 +184,9 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id, defense
     target_char_name = target_char[2]
     
     def_power = 0
-    if defense_ability_id:
+    if simple_defense:
+        def_power = 30 # قدرت پایه دفاع ساده
+    elif defense_ability_id:
         c.execute("SELECT name_fa, power FROM abilities WHERE id=?", (defense_ability_id,))
         def_ab = c.fetchone()
         def_power = def_ab[1]
@@ -201,7 +203,7 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id, defense
     if atk_power > def_power_roll:
         res = "goal"
         pts = 10
-        coins = 10 # 🪙 سکه برای گل
+        coins = 10
         text = f"⚽✨ **گل!!!** ✨⚽\n\n🎯 **{attacker_char}** با **{atk_ab[0]}** از **{target_name}** رد شد!\n\n💪 قدرت حمله: {atk_ab[1]} vs 🛡 دفاع: {def_power}\n🏆 +{pts} امتیاز | 🪙 +{coins} سکه"
     else:
         res = "save"
@@ -262,9 +264,10 @@ def cb(call):
         def_abs = c.fetchall(); conn.close()
         
         if not def_abs:
-            bot.edit_message_text("❌ شما هیچ Ability دفاعی ندارید! مجبورید فرار کنید.", chat_id=chat_id, message_id=msg_id)
-            execute_attack(chat_id, int(attacker_id), int(target_id), int(ability_id), int(char_id))
-            bot.answer_callback_query(call.id)
+            try: bot.delete_message(chat_id, msg_id)
+            except: pass
+            bot.answer_callback_query(call.id, "شما Ability دفاعی نداشتید، دفاع ساده انجام شد!")
+            execute_attack(chat_id, int(attacker_id), int(target_id), int(ability_id), int(char_id), simple_defense=True)
             return
             
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -299,7 +302,7 @@ def cb(call):
         for i in range(1,4):
             s = next((x for x in slots if x[0]==i), None)
             label = f"🔄 تغییر اسلات {i} ({s[2][:12]})" if s else f"➕ افزودن به اسلات {i}"
-            markup.add(types.InlineKeyboardButton(label, callback_data=f"editslot_{i}_{uid}"))
+            markup.add(types.InlineKeyboardButton(label, callback_data=f"editslot_{i}_{uid}_0"))
         markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
         edit_to_text(chat_id, msg_id, text, markup)
         bot.answer_callback_query(call.id)
