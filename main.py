@@ -7,7 +7,7 @@ from database import init_db, seed, db
 from utils import (
     get_rank, is_banned, get_user, get_slots, get_abilities,
     check_rip_status, consume_energy, ab_cd, set_ab_cd,
-    find_ability, simulate, get_image, set_image, log_history
+    find_ability, simulate, get_image, set_image, log_history, get_active_event
 )
 import migration
 
@@ -21,14 +21,13 @@ def show_main_menu(chat_id, uid, name, edit_msg_id=None):
     text = f"🎮✨ **Blue Lock Bot** ✨🎮\n\n👋 سلام {name}!\n🏆 رنک: {rank} ({user[2]} امتیاز)\n⚡ انرژی: {energy}/{max_energy}\n"
     if user[9] and user[9] > time.time(): text += f"😵 خسته (تا {int(user[9]-time.time())} ثانیه)\n"
     
-    # چک کردن رویداد فعال
-    conn = db(); c = conn.cursor(); c.execute("SELECT title FROM events WHERE is_active=1"); ev = c.fetchone(); conn.close()
-    if ev: text += f"\n🎉 **رویداد فعال:** {ev[0]}\n"
+    ev = get_active_event()
+    if ev: text += f"\n🎉 **رویداد فعال:** {ev[1]}\n"
         
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(types.InlineKeyboardButton("🛡 اسلات‌های من", callback_data="menu_slots"), types.InlineKeyboardButton("👤 پروفایل من", callback_data="menu_profile"))
-    markup.add(types.InlineKeyboardButton("🏆 لیدربورد", callback_data="menu_top"), types.InlineKeyboardButton("📖 Abilityها", callback_data="menu_abilities"))
-    markup.add(types.InlineKeyboardButton("📜 تاریخچه بازی", callback_data="menu_history"))
+    markup.add(types.InlineKeyboardButton("🛒 فروشگاه Ability", callback_data="menu_shop"), types.InlineKeyboardButton("📖 Abilityهای من", callback_data="menu_abilities"))
+    markup.add(types.InlineKeyboardButton("🏆 لیدربورد", callback_data="menu_top"), types.InlineKeyboardButton("📜 تاریخچه", callback_data="menu_history"))
     if uid == OWNER_ID: markup.add(types.InlineKeyboardButton("👑 پنل مالک", callback_data="menu_admin"))
         
     banner = get_image('welcome_banner')
@@ -90,8 +89,7 @@ def show_profile(chat_id, uid, edit_msg_id=None):
 
 def show_history(chat_id, uid, edit_msg_id=None):
     conn = db(); c = conn.cursor()
-    c.execute("""SELECT ability_name, result, points, timestamp FROM history 
-                 WHERE attacker_id=? ORDER BY id DESC LIMIT 10""", (uid,))
+    c.execute("SELECT ability_name, result, points FROM history WHERE attacker_id=? ORDER BY id DESC LIMIT 10", (uid,))
     hist = c.fetchall(); conn.close()
     
     text = "📜✨ **۱۰ بازی آخر شما** ✨📜\n\n"
@@ -103,6 +101,32 @@ def show_history(chat_id, uid, edit_msg_id=None):
             text += f"• {h[0]} | {icon} | {sign}{h[2]} امتیاز\n"
     
     markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
+    if edit_msg_id: bot.edit_message_text(text, chat_id=chat_id, message_id=edit_msg_id, reply_markup=markup, parse_mode='Markdown')
+    else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+
+def show_shop(chat_id, uid, edit_msg_id=None):
+    u = get_user(uid)
+    text = f"🛒✨ **فروشگاه Ability** ✨🛒\n\n💰 امتیاز شما: {u[2]}\n\n📌 Ability مورد نظر رو بخر:"
+    
+    conn = db(); c = conn.cursor()
+    c.execute("""SELECT a.id, a.name_fa, a.price FROM abilities a
+                 JOIN character_abilities ca ON a.id = ca.ability_id
+                 JOIN user_slots us ON ca.character_id = us.character_id
+                 WHERE us.user_id = ? 
+                 AND a.id NOT IN (SELECT ability_id FROM user_abilities WHERE user_id=?)
+                 AND a.price > 0
+                 GROUP BY a.id ORDER BY a.price ASC LIMIT 15""", (uid, uid))
+    shop_abs = c.fetchall(); conn.close()
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    if not shop_abs:
+        text = "🛒✨ **فروشگاه** ✨🛒\n\n👀 هیچ Ability جدیدی برای کاراکترهای شما نیست! (همه رو داری یا کاراکترهات Ability جدیدی ندارن)."
+    else:
+        for ab in shop_abs:
+            markup.add(types.InlineKeyboardButton(f"{ab[1]} ({ab[2]}💰)", callback_data=f"buy_{ab[0]}_{ab[2]}"))
+            
+    markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data="back_main"))
+    
     if edit_msg_id: bot.edit_message_text(text, chat_id=chat_id, message_id=edit_msg_id, reply_markup=markup, parse_mode='Markdown')
     else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
 
@@ -118,7 +142,7 @@ def handle_reply(message):
     if not status: bot.reply_to(message, msg); return
         
     abilities = get_abilities(uid)
-    if not abilities: bot.reply_to(message, "❌ Ability نداری! اول /slots رو بزن."); return
+    if not abilities: bot.reply_to(message, "❌ Ability نداری! /slots"); return
         
     ab = find_ability(message.text, abilities)
     if not ab: bot.reply_to(message, "❌✨ Ability پیدا نشد! ✨❌\n📖 /abilities"); return
@@ -133,7 +157,7 @@ def handle_reply(message):
     user_slots = get_slots(uid)
     markup = types.InlineKeyboardMarkup(row_width=1)
     for slot in user_slots:
-        markup.add(types.InlineKeyboardButton(f"⚔ {slot[2]}", callback_data=f"attack_{target_user.id}_{ab[0]}_{slot[1]}"))
+        markup.add(types.InlineKeyboardButton(f"⚔ {slot[2]}", callback_data=f"attack_{uid}_{target_user.id}_{ab[0]}_{slot[1]}"))
     
     text = f"🎯 **انتخاب مهاجم**\n\nشما می‌خواهید با Ability **{ab[2]}** به {target_user.first_name} حمله کنید.\nبا کدوم کاراکترت حمله می‌کنی؟"
     bot.reply_to(message, text, reply_markup=markup, parse_mode='Markdown')
@@ -147,7 +171,7 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
     attacker_char = c.fetchone()[0]
     
     target_slots = get_slots(target_id)
-    if not target_slots: return "❌ هدف کاراکتر ندارد."
+    if not target_slots: return
     target_char = random.choice(target_slots)
     
     c.execute("SELECT defense FROM characters WHERE id=?", (target_char[1],))
@@ -155,12 +179,14 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
     
     c.execute("SELECT name FROM users WHERE user_id=?", (target_id,))
     target_name = c.fetchone()[0]
-    
-    # چک رویداد
-    c.execute("SELECT reward_multiplier FROM events WHERE is_active=1")
-    ev = c.fetchone()
-    multiplier = ev[0] if ev else 1.0
     conn.close()
+    
+    multiplier = 1.0
+    ev = get_active_event()
+    if ev:
+        if ev[2] == "global": multiplier = ev[4]
+        elif ev[2] == "attack" and target_char[1] == ev[3]: multiplier = ev[4]
+        elif ev[2] == "ability" and ability_id == ev[3]: multiplier = ev[4]
     
     energy_left, exhausted_until = consume_energy(attacker_id)
     res, diff = simulate(ab[2], defense)
@@ -173,13 +199,11 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
         pts = int(-5 * multiplier)
         text = f"🧤✨ **مهار!** ✨🧤\n\n🛡 **{target_char[2]}** (مال {target_name}) جلوی **{ab[0]}** رو گرفت!\n\n💪 قدرت: {ab[2]} vs 🛡 دفاع: {defense}\n🏆 {pts} امتیاز"
         
-    if multiplier > 1.0: text += f"\n🎉 (جایزه رویداد: {multiplier}x)"
+    if multiplier > 1.0: text += f"\n🎉 (رویداد: {multiplier}x)"
     if exhausted_until > 0: text += f"\n\n😵 **انرژی تموم شد!**\n⏱ باید ۲ دقیقه استراحت کنی."
         
     conn = db(); c = conn.cursor()
     c.execute("UPDATE users SET rank_points=rank_points+? WHERE user_id=?", (pts, attacker_id))
-    
-    # ذخیره تاریخچه
     log_history(attacker_id, target_id, ab[1], res, pts)
     
     if res == "goal":
@@ -200,14 +224,35 @@ def execute_attack(chat_id, attacker_id, target_id, ability_id, char_id):
 def cb(call):
     uid = call.from_user.id; data = call.data; chat_id = call.message.chat.id; msg_id = call.message.message_id
     
-    if data == "menu_slots": slots_cmd(call.message, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
-    elif data == "menu_profile": show_profile(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
-    elif data == "menu_history": show_history(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
-    elif data.startswith("attack_"):
-        _, target_id, ability_id, char_id = data.split("_")
+    # 🔒 قفل امنیتی: فقط صاحب منو می‌تونه دکمه‌ها رو بزنه
+    if data.startswith("attack_"):
+        _, attacker_id, target_id, ability_id, char_id = data.split("_")
+        if uid != int(attacker_id):
+            bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست!", show_alert=True)
+            return
         bot.edit_message_text("⏳ در حال شبیه‌سازی...", chat_id=chat_id, message_id=msg_id)
         execute_attack(chat_id, uid, int(target_id), int(ability_id), int(char_id))
         bot.answer_callback_query(call.id)
+        return
+        
+    # برای بقیه دکمه‌ها (منوها)، چون از chat_id استفاده می‌کنیم، نیازی به قفل نیست مگر اینکه بخوایم.
+    if data == "menu_slots": slots_cmd(call.message, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
+    elif data == "menu_profile": show_profile(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
+    elif data == "menu_history": show_history(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
+    elif data == "menu_shop": show_shop(chat_id, uid, edit_msg_id=msg_id); bot.answer_callback_query(call.id)
+    elif data.startswith("buy_"):
+        _, aid, price = data.split("_")
+        aid = int(aid); price = int(price)
+        u = get_user(uid)
+        if u[2] < price:
+            bot.answer_callback_query(call.id, "❌ امتیاز کافی نداری!", show_alert=True)
+        else:
+            conn = db(); c = conn.cursor()
+            c.execute("UPDATE users SET rank_points=rank_points-? WHERE user_id=?", (price, uid))
+            c.execute("INSERT OR IGNORE INTO user_abilities (user_id,ability_id) VALUES (?,?)", (uid, aid))
+            conn.commit(); conn.close()
+            bot.answer_callback_query(call.id, "✅ Ability خریداری شد!", show_alert=True)
+            show_shop(chat_id, uid, edit_msg_id=msg_id)
     elif data == "menu_top":
         conn = db(); c = conn.cursor(); c.execute("SELECT name,rank_points FROM users ORDER BY rank_points DESC LIMIT 10"); top = c.fetchall(); conn.close()
         t = "🏆✨ **لیدربورد** ✨🏆\n\n"
@@ -282,7 +327,6 @@ def cb(call):
         bot.edit_message_text(f"🖼✨ {key} ✨🖼\n\n📌 عکس رو بفرست!", chat_id=chat_id, message_id=msg_id)
         bot.answer_callback_query(call.id)
 
-# هندلر عکس
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     uid = message.from_user.id
