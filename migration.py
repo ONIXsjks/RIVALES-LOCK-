@@ -13,16 +13,19 @@ def migrate():
     try: c.execute("ALTER TABLE users ADD COLUMN exhausted_until INTEGER DEFAULT 0")
     except: pass
 
+    # ⚠️ این جدول رو کلاً پاک میکنیم چون ساختارش عوض شده (داده‌های رویداد ارزش نگه داشتن ندارن)
+    c.execute("DROP TABLE IF EXISTS events")
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, event_type TEXT, target_id INTEGER, 
+        multiplier REAL, ends_at INTEGER, is_active INTEGER DEFAULT 1)''')
+
     c.execute('''CREATE TABLE IF NOT EXISTS user_abilities (
         user_id INTEGER, ability_id INTEGER, PRIMARY KEY (user_id, ability_id))''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS history (
         id INTEGER PRIMARY KEY AUTOINCREMENT, attacker_id INTEGER, target_id INTEGER, 
         ability_name TEXT, result TEXT, points INTEGER, timestamp INTEGER)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, event_type TEXT, target_id INTEGER, 
-        multiplier REAL, ends_at INTEGER, is_active INTEGER DEFAULT 1)''')
 
     conn.commit()
     conn.close()
