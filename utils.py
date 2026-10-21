@@ -30,7 +30,11 @@ def get_abilities(uid):
     c.execute("""SELECT DISTINCT a.* FROM user_slots us
                  JOIN character_abilities ca ON us.character_id=ca.character_id
                  JOIN abilities a ON ca.ability_id=a.id
-                 WHERE us.user_id=?""", (uid,))
+                 WHERE us.user_id=?
+                 UNION
+                 SELECT a.* FROM user_abilities ua
+                 JOIN abilities a ON ua.ability_id=a.id
+                 WHERE ua.user_id=?""", (uid, uid))
     r = c.fetchall(); conn.close(); return r
 
 def check_rip_status(uid):
@@ -40,13 +44,11 @@ def check_rip_status(uid):
     if not r: return False, "شما ثبت‌نام نکرده‌اید."
     now = time.time()
     
-    # گرفتن حداکثر انرژی بر اساس رنک
     _, max_energy = get_rank(r[3])
     
     if r[2] and r[2] > now: return False, f"😵 خسته شدی! انرژی صفره.\n⏱ {int(r[2] - now)} ثانیه دیگه استراحت کن."
     if r[0] and now - r[0] < 10: return False, f"⏳ صبر کن! {int(10 - (now - r[0]))} ثانیه تا ریپ بعدی."
     
-    # اگه انرژی از حداکثر رنک کمتر بود، پر کن
     if r[1] < max_energy:
         conn = db(); c = conn.cursor(); c.execute("UPDATE users SET energy=? WHERE user_id=?", (max_energy, uid)); conn.commit(); conn.close()
         
@@ -109,3 +111,10 @@ def log_history(attacker_id, target_id, ability_name, result, pts):
     c.execute("INSERT INTO history (attacker_id, target_id, ability_name, result, points, timestamp) VALUES (?,?,?,?,?,?)", 
               (attacker_id, target_id, ability_name, result, pts, int(time.time())))
     conn.commit(); conn.close()
+
+def get_active_event():
+    conn = db(); c = conn.cursor()
+    now = int(time.time())
+    c.execute("SELECT id, title, event_type, target_id, multiplier FROM events WHERE is_active=1 AND ends_at > ?", (now,))
+    ev = c.fetchone(); conn.close()
+    return ev
