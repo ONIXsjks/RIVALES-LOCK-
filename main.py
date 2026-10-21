@@ -34,7 +34,6 @@ def show_main_menu(chat_id, uid, name, edit_msg_id=None):
     if ev: text += f"\n🎉 **رویداد فعال:** {ev[1]}\n"
         
     markup = types.InlineKeyboardMarkup(row_width=2)
-    # 🔒 در کالبک دیتا، آیدی کاربر رو می‌فرستیم تا کاربر دیگه نتونه دستکاری کنه
     markup.add(types.InlineKeyboardButton("🛡 اسلات‌های من", callback_data=f"menu_slots_{uid}"), types.InlineKeyboardButton("👤 پروفایل من", callback_data=f"menu_profile_{uid}"))
     markup.add(types.InlineKeyboardButton("🛒 فروشگاه Ability", callback_data=f"menu_shop_{uid}"), types.InlineKeyboardButton("📖 Abilityهای من", callback_data=f"menu_abilities_{uid}"))
     markup.add(types.InlineKeyboardButton("🏆 لیدربورد", callback_data=f"menu_top_{uid}"), types.InlineKeyboardButton("📜 تاریخچه", callback_data=f"menu_history_{uid}"))
@@ -111,7 +110,6 @@ def show_shop(chat_id, uid, edit_msg_id=None):
         text = "🛒✨ **فروشگاه** ✨🛒\n\n👀 هیچ Ability جدیدی برای کاراکترهای شما نیست!"
     else:
         for ab in shop_abs:
-            # 🔒 آیدی کاربر رو به دکمه خرید اضافه میکنیم
             markup.add(types.InlineKeyboardButton(f"{ab[1]} ({ab[2]}💰)", callback_data=f"buy_{ab[0]}_{ab[2]}_{uid}"))
             
     markup.add(types.InlineKeyboardButton("🔙 برگشت", callback_data=f"back_main_{uid}"))
@@ -122,20 +120,29 @@ def handle_reply(message):
     uid = message.from_user.id
     if is_banned(uid): return
     
+    # اگه روی پیام خودش یا بات ریپلای زده بود، هیچ کاری نکن
     target_user = message.reply_to_message.from_user
     if target_user.id == uid or target_user.is_bot: return 
     
-    status, msg = check_rip_status(uid)
-    if not status: bot.reply_to(message, msg); return
-        
     abilities = get_abilities(uid)
-    if not abilities: bot.reply_to(message, "❌ Ability نداری! /slots"); return
+    if not abilities: return
         
+    # 🔍 چک میکنیم آیا متنی که نوشته، اسم یه Ability هست یا نه
     ab = find_ability(message.text, abilities)
-    if not ab: bot.reply_to(message, "❌✨ Ability پیدا نشد! ✨❌\n📖 /abilities"); return
+    
+    # 🛑 اگه متن عادی بود (مثل سلام)، بات کاملاً ساکت میمونه و هیچ اروری نمیده
+    if not ab: return 
+    
+    # از اینجا به بعد یعنی کاربر واقعاً داره حمله میکنه
+    status, msg = check_rip_status(uid)
+    if not status: 
+        bot.reply_to(message, msg, parse_mode='Markdown')
+        return
         
     cd = ab_cd(uid, ab[0])
-    if cd > 0: bot.reply_to(message, f"⏳ {ab[2]} — {cd} ثانیه کول‌داون داره!"); return
+    if cd > 0: 
+        bot.reply_to(message, f"⏳ {ab[2]} — {cd} ثانیه کول‌داون داره!", parse_mode='Markdown')
+        return
         
     target_slots = get_slots(target_user.id)
     if not target_slots:
@@ -144,7 +151,6 @@ def handle_reply(message):
     user_slots = get_slots(uid)
     markup = types.InlineKeyboardMarkup(row_width=1)
     for slot in user_slots:
-        # 🔒 اینجا هم uid رو میفرستیم
         markup.add(types.InlineKeyboardButton(f"⚔ {slot[2]}", callback_data=f"attack_{uid}_{target_user.id}_{ab[0]}_{slot[1]}"))
     
     text = f"🎯 **انتخاب مهاجم**\n\nشما می‌خواهید با Ability **{ab[2]}** به {target_user.first_name} حمله کنید.\nبا کدوم کاراکترت حمله می‌کنی؟"
@@ -216,20 +222,17 @@ def cb(call):
     parts = data.split("_")
     owner_uid = None
     try:
-        # چک میکنیم آخرین بخش دیتا آیدی عددی هست یا نه
-        if parts[-1].isdigit():
-            owner_uid = int(parts[-1])
+        if parts[-1].isdigit(): owner_uid = int(parts[-1])
     except: pass
 
-    # 🔒 قفل امنیتی: اگه آیدی صاحب منو با کسی که کلیک کرده فرق داشت، بلاکش کن
+    # 🔒 قفل امنیتی: اگه صاحب منو با کسی که کلیک کرده فرق داشت
     if owner_uid and uid != owner_uid:
         bot.answer_callback_query(call.id, "⛔ این منو مال تو نیست! خودت منو رو باز کن.", show_alert=True)
         return
         
     if data.startswith("attack_"):
         _, attacker_id, target_id, ability_id, char_id = data.split("_")
-        try:
-            bot.edit_message_text("⏳ در حال شبیه‌سازی...", chat_id=chat_id, message_id=msg_id)
+        try: bot.edit_message_text("⏳ در حال شبیه‌سازی...", chat_id=chat_id, message_id=msg_id)
         except: pass
         execute_attack(chat_id, uid, int(target_id), int(ability_id), int(char_id))
         bot.answer_callback_query(call.id)
