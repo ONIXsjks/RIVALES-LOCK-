@@ -4,9 +4,9 @@ from config import RANKS, ABILITY_COOLDOWN, ENERGY_COST, EXHAUSTION_TIME
 from database import db
 
 def get_rank(p):
-    for t,n in reversed(RANKS):
-        if p >= t: return n
-    return RANKS[0][1]
+    for t,n,e in reversed(RANKS):
+        if p >= t: return n, e
+    return RANKS[0][1], RANKS[0][2]
 
 def is_banned(uid):
     conn = db(); c = conn.cursor()
@@ -20,7 +20,7 @@ def get_user(uid):
 
 def get_slots(uid):
     conn = db(); c = conn.cursor()
-    c.execute("""SELECT us.slot_number,c.id,c.name FROM user_slots us
+    c.execute("""SELECT us.slot_number,c.id,c.name,c.photo_file_id FROM user_slots us
                  JOIN characters c ON us.character_id=c.id
                  WHERE us.user_id=? ORDER BY us.slot_number""", (uid,))
     r = c.fetchall(); conn.close(); return r
@@ -35,23 +35,36 @@ def get_abilities(uid):
 
 def check_rip_status(uid):
     conn = db(); c = conn.cursor()
-    c.execute("SELECT last_rip, energy, exhausted_until FROM users WHERE user_id=?", (uid,))
+    c.execute("SELECT last_rip, energy, exhausted_until, rank_points FROM users WHERE user_id=?", (uid,))
     r = c.fetchone(); conn.close()
     if not r: return False, "شما ثبت‌نام نکرده‌اید."
     now = time.time()
+    
+    # گرفتن حداکثر انرژی بر اساس رنک
+    _, max_energy = get_rank(r[3])
+    
     if r[2] and r[2] > now: return False, f"😵 خسته شدی! انرژی صفره.\n⏱ {int(r[2] - now)} ثانیه دیگه استراحت کن."
     if r[0] and now - r[0] < 10: return False, f"⏳ صبر کن! {int(10 - (now - r[0]))} ثانیه تا ریپ بعدی."
+    
+    # اگه انرژی از حداکثر رنک کمتر بود، پر کن
+    if r[1] < max_energy:
+        conn = db(); c = conn.cursor(); c.execute("UPDATE users SET energy=? WHERE user_id=?", (max_energy, uid)); conn.commit(); conn.close()
+        
     return True, ""
 
 def consume_energy(uid):
     conn = db(); c = conn.cursor()
-    c.execute("SELECT energy FROM users WHERE user_id=?", (uid,))
-    energy = c.fetchone()[0] or 100
+    c.execute("SELECT energy, rank_points FROM users WHERE user_id=?", (uid,))
+    r = c.fetchone()
+    energy = r[0] or 100
+    _, max_energy = get_rank(r[1])
+    
     new_energy = energy - ENERGY_COST
     exhausted = 0
     if new_energy <= 0:
         new_energy = 0
         exhausted = int(time.time()) + EXHAUSTION_TIME
+        
     c.execute("UPDATE users SET energy=?, exhausted_until=?, last_rip=? WHERE user_id=?", (new_energy, exhausted, time.time(), uid))
     conn.commit(); conn.close()
     return new_energy, exhausted
@@ -89,4 +102,10 @@ def get_image(key):
 def set_image(key, fid, uid):
     conn = db(); c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO bot_images (key,file_id,updated_at,updated_by) VALUES (?,?,?,?)", (key, fid, int(time.time()), uid))
+    conn.commit(); conn.close()
+
+def log_history(attacker_id, target_id, ability_name, result, pts):
+    conn = db(); c = conn.cursor()
+    c.execute("INSERT INTO history (attacker_id, target_id, ability_name, result, points, timestamp) VALUES (?,?,?,?,?,?)", 
+              (attacker_id, target_id, ability_name, result, pts, int(time.time())))
     conn.commit(); conn.close()
