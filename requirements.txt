@@ -1,5 +1,4 @@
 aiogram>=3.0.0
 aiohttp
-flask
-supabase
-supadns
+sqlalchemy<2.1
+psycopg2-binary
